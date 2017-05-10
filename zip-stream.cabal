@@ -1,8 +1,7 @@
 name:                zip-stream
-version:             0.1.0.0
--- synopsis:
--- description:
-homepage:            https://github.com/dylex/zip-stream#readme
+version:             0
+synopsis:            ZIP file stream processing using conduits
+description:         Process (extract and create) zip files as streams, accessing individual files without having to write a zip file to disk, unlike zip-conduit.  Unfortunately, processing zip files in this way introduces some limitations on what ZIP features can be supported, but the goal is to support most cases.
 license:             BSD3
 license-file:        LICENSE
 author:              Dylan Simon
