@@ -53,7 +53,7 @@ unZip = next where
       FileHeader{..} -> do
         C.yield $ Left fileEntry
         C.mapOutput Right $ pass (fromIntegral fileCSize)
-          C..| fileDecompress
+          C..| (fileDecompress >> CL.sinkNull)
           C..| checkCRC fileCRC
         next
       EndOfCentralDirectory{..} -> do
