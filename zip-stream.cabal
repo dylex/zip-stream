@@ -22,7 +22,7 @@ library
   ghc-options: -Wall
   build-depends:       
     base >= 4.7 && < 5,
-    binary,
+    binary >= 0.7.2,
     binary-conduit,
     bytestring,
     conduit,
