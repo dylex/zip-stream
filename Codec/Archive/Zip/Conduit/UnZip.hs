@@ -104,12 +104,12 @@ foldGet g z = do
   if e then return z else g z >>= foldGet g
 
 -- |Stream a zip file, producing a sequence of entry headers and data blocks.
--- For example, this might produce: @Left (ZipEntry "directory/" ...), Left (ZipEntry "directory/file.txt" ...), Right "hello w", Right "orld!\n", Left ...@
+-- For example, this might produce: @Left (ZipEntry "directory\/" ...), Left (ZipEntry "directory\/file.txt" ...), Right "hello w", Right "orld!\\n", Left ...@
 -- The final result is summary information taken from the end of the zip file.
--- No state in maintained during processing, and in particular, any file-specific information in the final central directory is discarded.
+-- No state is maintained during processing, and, in particular, any information in the central directory is discarded.
 --
 -- This only supports a limited number of zip file features, including deflate compression and zip64.
--- It does not support streaming zip files, where file sizes are not known beforehand (though this could potentially be fixed for some cases).
+-- It does not (ironically) support zip files that have been created as streams, where file sizes are not known beforehand (though this could potentially be fixed for some cases).
 -- Since it does not use the offset information at the end of the file, it assumes all entries are packed sequentially, which is usually the case.
 -- Any errors are thrown in the underlying monad.
 unZip :: (MonadBase b m, PrimMonad b, MonadThrow m) => C.ConduitM BS.ByteString (Either ZipEntry BS.ByteString) m ZipInfo
