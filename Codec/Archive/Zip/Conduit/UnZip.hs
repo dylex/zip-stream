@@ -78,6 +78,11 @@ crc32 = CL.fold crc32Update 0
 checkCRC :: Monad m => Word32 -> C.Conduit BS.ByteString m BS.ByteString
 checkCRC t = C.passthroughSink crc32 $ \r -> unless (r == t) $ fail "CRC32 mismatch"
 
+foldGet :: (a -> G.Get a) -> a -> G.Get a
+foldGet g z = do
+  e <- G.isEmpty
+  if e then return z else g z >>= foldGet g
+
 unZip :: C.ConduitM BS.ByteString (Either ZipEntry BS.ByteString) IO ZipInfo
 unZip = next where
   next = do
@@ -149,7 +154,7 @@ unZip = next where
     let getExt ext = do
           t <- G.getWord16le
           z <- fromIntegral <$> G.getWord16le
-          ext' <- G.isolate z $ case t of
+          G.isolate z $ case t of
             0x0001 -> do
               -- the zip specs claim "the Local header MUST include BOTH" but "only if the corresponding field is set to 0xFFFFFFFF"
               usiz' <- if usiz == maxBound then G.getWord64le else return $ extZip64USize ext
@@ -175,8 +180,7 @@ unZip = next where
                 }
             -}
             _ -> ext <$ G.skip z
-          getExt ext'
-    ExtField{..} <- G.isolate elen $ getExt ExtField
+    ExtField{..} <- G.isolate elen $ foldGet getExt ExtField
       { extZip64 = False
       , extZip64USize = fromIntegral usiz
       , extZip64CSize = fromIntegral csiz
