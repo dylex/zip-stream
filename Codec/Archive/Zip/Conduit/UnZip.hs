@@ -17,6 +17,7 @@ import           Control.Monad.Primitive (PrimMonad)
 import qualified Data.Binary.Get as G
 import           Data.Bits ((.&.), complement, testBit, shiftL, shiftR)
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BSC
 import qualified Data.Conduit as C
 import qualified Data.Conduit.List as CL
 import           Data.Conduit.Serialization.Binary (sinkGet)
@@ -53,6 +54,7 @@ data Header m
     , fileCRC :: !Word32
     , fileCSize :: !Word64
     , fileZip64 :: !Bool
+    , fileStream :: !Bool
     }
   | EndOfCentralDirectory
     { endInfo :: ZipInfo
@@ -92,11 +94,15 @@ pass n = C.await >>= maybe
         pass n')
   where ni = toInteger n
 
-crc32 :: Monad m => C.Consumer BS.ByteString m Word32
-crc32 = CL.fold crc32Update 0
+passthroughFold :: Monad m => (a -> b -> a) -> a -> C.ConduitM b b m a
+passthroughFold f z = C.await >>= maybe
+  (return z)
+  (\x -> do
+    C.yield x
+    passthroughFold f (f z x))
 
-checkCRC :: MonadThrow m => Word32 -> C.Conduit BS.ByteString m BS.ByteString
-checkCRC t = C.passthroughSink crc32 $ \r -> unless (r == t) $ zipError "CRC32 mismatch"
+sizeCRC :: (Monad m, Integral n) => C.ConduitM BS.ByteString BS.ByteString m (n, Word32)
+sizeCRC = passthroughFold (\(l, c) b -> (l + fromIntegral (BS.length b), crc32Update c b)) (0, 0)
 
 foldGet :: (a -> G.Get a) -> a -> G.Get a
 foldGet g z = do
@@ -109,7 +115,7 @@ foldGet g z = do
 -- No state is maintained during processing, and, in particular, any information in the central directory is discarded.
 --
 -- This only supports a limited number of zip file features, including deflate compression and zip64.
--- It does not (ironically) support zip files that have been created as streams, where file sizes are not known beforehand (though this could potentially be fixed for some cases).
+-- It does not (ironically) support uncompressed zip files that have been created as streams, where file sizes are not known beforehand.
 -- Since it does not use the offset information at the end of the file, it assumes all entries are packed sequentially, which is usually the case.
 -- Any errors are thrown in the underlying monad.
 unZip :: (MonadBase b m, PrimMonad b, MonadThrow m) => C.ConduitM BS.ByteString (Either ZipEntry BS.ByteString) m ZipInfo
@@ -119,10 +125,28 @@ unZip = next where
     case h of
       FileHeader{..} -> do
         C.yield $ Left fileEntry
-        C.mapOutput Right $ pass fileCSize
-          C..| (fileDecompress >> CL.sinkNull)
-          C..| checkCRC fileCRC
-        sinkGet $ dataDesc h
+        r <- C.mapOutput Right $
+          if fileStream
+            then do -- unknown size
+              ((csize, _), (size, crc)) <- C.fuseBoth sizeCRC
+                $ fileDecompress
+                C..| sizeCRC
+              -- required data description
+              sinkGet $ dataDesc h
+                { fileCSize = csize
+                , fileCRC = crc
+                , fileEntry = fileEntry
+                  { zipEntrySize = size
+                  }
+                }
+            else do -- known size
+              (size, crc) <- pass fileCSize
+                C..| (fileDecompress >> CL.sinkNull)
+                C..| sizeCRC
+              -- optional data description
+              (&&) (size == zipEntrySize fileEntry && crc == fileCRC)
+                <$> sinkGet (dataDesc h <|> return True)
+        unless r $ zipError $ BSC.unpack (zipEntryName fileEntry) ++ ": data integrity check failed"
         next
       EndOfCentralDirectory{..} -> do
         return endInfo
@@ -137,13 +161,12 @@ unZip = next where
       guard (sig == 0x06054b50)
       dataDescBody h)
     <|> dataDescBody h -- without signature
-    <|> return () -- none
   dataDescBody FileHeader{..} = do
     crc <- G.getWord32le
     let getSize = if fileZip64 then G.getWord64le else fromIntegral <$> G.getWord32le
     csiz <- getSize
     usiz <- getSize
-    guard $ crc == fileCRC && csiz == fileCSize && usiz == zipEntrySize fileEntry
+    return $ crc == fileCRC && csiz == fileCSize && usiz == zipEntrySize fileEntry
   dataDescBody _ = empty
   central = G.getWord32le >>= centralBody
   centralBody 0x02014b50 = centralHeader >> central
@@ -224,6 +247,7 @@ unZip = next where
       , fileCSize = extZip64CSize
       , fileCRC = crc
       , fileZip64 = extZip64
+      , fileStream = testBit gpf 3
       }
   centralHeader = do
     -- ignore everything
