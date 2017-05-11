@@ -1,13 +1,19 @@
+-- |Stream the extraction of a zip file, e.g., as it's being downloaded.
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE RankNTypes #-}
 module Codec.Archive.Zip.Conduit.UnZip
   ( ZipEntry(..)
   , ZipInfo(..)
+  , ZipError
   , unZip
   ) where
 
 import           Control.Applicative ((<|>), empty)
+import           Control.Exception (Exception(..))
 import           Control.Monad (when, unless, guard)
+import           Control.Monad.Base (MonadBase)
+import           Control.Monad.Catch (MonadThrow, throwM)
+import           Control.Monad.Primitive (PrimMonad)
 import qualified Data.Binary.Get as G
 import           Data.Bits ((.&.), complement, testBit, shiftL, shiftR)
 import qualified Data.ByteString as BS
@@ -17,17 +23,28 @@ import           Data.Conduit.Serialization.Binary (sinkGet)
 import           Data.Conduit.Zlib (WindowBits(..), decompress)
 import           Data.Digest.CRC32 (crc32Update)
 import           Data.Time (UTCTime(..), fromGregorian, timeOfDayToTime, TimeOfDay(..))
+import           Data.Typeable (Typeable)
 import           Data.Word (Word32, Word64)
 
+-- |(The beginning of) a single entry in a zip stream, which may be any file or directory.
+-- As per zip file conventions, directory names should end with a slash and have no data, but this library does not ensure that.
 data ZipEntry = ZipEntry
-  { zipEntryName :: BS.ByteString
-  , zipEntryTime :: UTCTime
-  , zipEntrySize :: !Word64
+  { zipEntryName :: BS.ByteString -- ^File name, usually utf-8 encoded, with a trailing slash for directories
+  , zipEntryTime :: UTCTime -- ^Modification time
+  , zipEntrySize :: !Word64 -- ^Size of file data (not checked)
   }
 
+-- |Summary information at the end of a zip stream.
 data ZipInfo = ZipInfo
   { zipComment :: BS.ByteString
   }
+
+-- |Errors thrown during zip file processing
+newtype ZipError = ZipError String
+  deriving (Show, Typeable)
+
+instance Exception ZipError where
+  displayException (ZipError e) = "ZipError: " ++ e
 
 data Header m
   = FileHeader
@@ -56,10 +73,13 @@ data ExtField = ExtField
   }
 -}
 
-pass :: (Monad m, Integral n) => n -> C.Conduit BS.ByteString m BS.ByteString
+zipError :: MonadThrow m => String -> m a
+zipError = throwM . ZipError
+
+pass :: (MonadThrow m, Integral n) => n -> C.Conduit BS.ByteString m BS.ByteString
 pass 0 = return ()
 pass n = C.await >>= maybe
-  (fail $ "EOF in file data, expecting " ++ show ni ++ " more bytes")
+  (zipError $ "EOF in file data, expecting " ++ show ni ++ " more bytes")
   (\b ->
     let n' = ni - toInteger (BS.length b) in
     if n' < 0
@@ -75,15 +95,24 @@ pass n = C.await >>= maybe
 crc32 :: Monad m => C.Consumer BS.ByteString m Word32
 crc32 = CL.fold crc32Update 0
 
-checkCRC :: Monad m => Word32 -> C.Conduit BS.ByteString m BS.ByteString
-checkCRC t = C.passthroughSink crc32 $ \r -> unless (r == t) $ fail "CRC32 mismatch"
+checkCRC :: MonadThrow m => Word32 -> C.Conduit BS.ByteString m BS.ByteString
+checkCRC t = C.passthroughSink crc32 $ \r -> unless (r == t) $ zipError "CRC32 mismatch"
 
 foldGet :: (a -> G.Get a) -> a -> G.Get a
 foldGet g z = do
   e <- G.isEmpty
   if e then return z else g z >>= foldGet g
 
-unZip :: C.ConduitM BS.ByteString (Either ZipEntry BS.ByteString) IO ZipInfo
+-- |Stream a zip file, producing a sequence of entry headers and data blocks.
+-- For example, this might produce: @Left (ZipEntry "directory/" ...), Left (ZipEntry "directory/file.txt" ...), Right "hello w", Right "orld!\n", Left ...@
+-- The final result is summary information taken from the end of the zip file.
+-- No state in maintained during processing, and in particular, any file-specific information in the final central directory is discarded.
+--
+-- This only supports a limited number of zip file features, including deflate compression and zip64.
+-- It does not support streaming zip files, where file sizes are not known beforehand (though this could potentially be fixed for some cases).
+-- Since it does not use the offset information at the end of the file, it assumes all entries are packed sequentially, which is usually the case.
+-- Any errors are thrown in the underlying monad.
+unZip :: (MonadBase b m, PrimMonad b, MonadThrow m) => C.ConduitM BS.ByteString (Either ZipEntry BS.ByteString) m ZipInfo
 unZip = next where
   next = do
     h <- sinkGet header

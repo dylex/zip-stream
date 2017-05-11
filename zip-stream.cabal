@@ -21,11 +21,14 @@ library
   default-language:    Haskell2010
   ghc-options: -Wall
   build-depends:       
-    base >= 4.7 && < 5,
+    base >= 4.8 && < 5,
     binary >= 0.7.2,
     binary-conduit,
     bytestring,
     conduit,
     conduit-extra,
     digest,
-    time
+    exceptions,
+    primitive,
+    time,
+    transformers-base
