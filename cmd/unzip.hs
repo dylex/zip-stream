@@ -20,10 +20,10 @@ extract = C.awaitForever start where
     liftIO $ BSC.putStrLn zipEntryName
     liftIO $ createDirectoryIfMissing True (takeDirectory name)
     if BSC.last zipEntryName == '/'
-      then when (zipEntrySize /= 0) $ fail $ name ++ ": non-empty directory"
+      then when ((0 /=) `any` zipEntrySize) $ fail $ name ++ ": non-empty directory"
       else do -- C.bracketP
         h <- liftIO $ openFile name WriteMode
-        liftIO $ hSetFileSize h $ toInteger zipEntrySize
+        mapM_ (liftIO . hSetFileSize h . toInteger) zipEntrySize
         write C..| CB.sinkHandle h
         liftIO $ hClose h
     liftIO $ setModificationTime name $ localTimeToUTC utc zipEntryTime -- FIXME: timezone

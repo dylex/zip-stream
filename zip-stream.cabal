@@ -1,7 +1,7 @@
 name:                zip-stream
 version:             0
-synopsis:            ZIP file stream processing using conduits
-description:         Process (extract and create) zip files as streams, accessing individual files without having to write a zip file to disk, unlike zip-conduit.  Unfortunately, processing zip files in this way introduces some limitations on what ZIP features can be supported, but the goal is to support most cases.
+synopsis:            ZIP archive streaming using conduits
+description:         Process (extract and create) zip files as streams (e.g., over the network), accessing individual files without having to write a zip file to disk (unlike zip-conduit).
 license:             BSD3
 license-file:        LICENSE
 author:              Dylan Simon
@@ -17,7 +17,10 @@ source-repository head
 
 library
   exposed-modules:     
+    Codec.Archive.Zip.Conduit.Types
     Codec.Archive.Zip.Conduit.UnZip
+  other-modules:
+    Codec.Archive.Zip.Conduit.Internal
   default-language:    Haskell2010
   ghc-options: -Wall
   build-depends:       

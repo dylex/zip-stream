@@ -9,10 +9,9 @@ module Codec.Archive.Zip.Conduit.UnZip
   ) where
 
 import           Control.Applicative ((<|>), empty)
-import           Control.Exception (Exception(..))
 import           Control.Monad (when, unless, guard)
 import           Control.Monad.Base (MonadBase)
-import           Control.Monad.Catch (MonadThrow, throwM)
+import           Control.Monad.Catch (MonadThrow)
 import           Control.Monad.Primitive (PrimMonad)
 import qualified Data.Binary.Get as G
 import           Data.Bits ((.&.), complement, testBit, shiftL, shiftR)
@@ -22,30 +21,11 @@ import qualified Data.Conduit as C
 import qualified Data.Conduit.List as CL
 import           Data.Conduit.Serialization.Binary (sinkGet)
 import           Data.Conduit.Zlib (WindowBits(..), decompress)
-import           Data.Digest.CRC32 (crc32Update)
 import           Data.Time (LocalTime(..), fromGregorian, TimeOfDay(..))
-import           Data.Typeable (Typeable)
 import           Data.Word (Word32, Word64)
 
--- |(The beginning of) a single entry in a zip stream, which may be any file or directory.
--- As per zip file conventions, directory names should end with a slash and have no data, but this library does not ensure that.
-data ZipEntry = ZipEntry
-  { zipEntryName :: BS.ByteString -- ^File name, usually utf-8 encoded, with a trailing slash for directories
-  , zipEntryTime :: LocalTime -- ^Modification time
-  , zipEntrySize :: !Word64 -- ^Size of file data
-  }
-
--- |Summary information at the end of a zip stream.
-data ZipInfo = ZipInfo
-  { zipComment :: BS.ByteString
-  }
-
--- |Errors thrown during zip file processing
-newtype ZipError = ZipError String
-  deriving (Show, Typeable)
-
-instance Exception ZipError where
-  displayException (ZipError e) = "ZipError: " ++ e
+import           Codec.Archive.Zip.Conduit.Types
+import           Codec.Archive.Zip.Conduit.Internal
 
 data Header m
   = FileHeader
@@ -54,7 +34,6 @@ data Header m
     , fileCRC :: !Word32
     , fileCSize :: !Word64
     , fileZip64 :: !Bool
-    , fileStream :: !Bool
     }
   | EndOfCentralDirectory
     { endInfo :: ZipInfo
@@ -75,9 +54,6 @@ data ExtField = ExtField
   }
 -}
 
-zipError :: MonadThrow m => String -> m a
-zipError = throwM . ZipError
-
 pass :: (MonadThrow m, Integral n) => n -> C.Conduit BS.ByteString m BS.ByteString
 pass 0 = return ()
 pass n = C.await >>= maybe
@@ -93,16 +69,6 @@ pass n = C.await >>= maybe
         C.yield b
         pass n')
   where ni = toInteger n
-
-passthroughFold :: Monad m => (a -> b -> a) -> a -> C.ConduitM b b m a
-passthroughFold f z = C.await >>= maybe
-  (return z)
-  (\x -> do
-    C.yield x
-    passthroughFold f (f z x))
-
-sizeCRC :: (Monad m, Integral n) => C.ConduitM BS.ByteString BS.ByteString m (n, Word32)
-sizeCRC = passthroughFold (\(l, c) b -> (l + fromIntegral (BS.length b), crc32Update c b)) (0, 0)
 
 foldGet :: (a -> G.Get a) -> a -> G.Get a
 foldGet g z = do
@@ -126,8 +92,8 @@ unZip = next where
       FileHeader{..} -> do
         C.yield $ Left fileEntry
         r <- C.mapOutput Right $
-          if fileStream
-            then do -- unknown size
+          case zipEntrySize fileEntry of
+            Nothing -> do -- unknown size
               ((csize, _), (size, crc)) <- C.fuseBoth sizeCRC
                 $ fileDecompress
                 C..| sizeCRC
@@ -136,17 +102,17 @@ unZip = next where
                 { fileCSize = csize
                 , fileCRC = crc
                 , fileEntry = fileEntry
-                  { zipEntrySize = size
+                  { zipEntrySize = Just size
                   }
                 }
-            else do -- known size
+            Just usize -> do -- known size
               (size, crc) <- pass fileCSize
                 C..| (fileDecompress >> CL.sinkNull)
                 C..| sizeCRC
               -- traceM $ "size=" ++ show size ++ "," ++ show (zipEntrySize fileEntry) ++ " crc=" ++ show crc ++ "," ++ show fileCRC
               -- optional data description (possibly ambiguous!)
               sinkGet $ (guard =<< dataDesc h) <|> return ()
-              return (size == zipEntrySize fileEntry && crc == fileCRC)
+              return (size == usize && crc == fileCRC)
         unless r $ zipError $ BSC.unpack (zipEntryName fileEntry) ++ ": data integrity check failed"
         next
       EndOfCentralDirectory{..} -> do
@@ -168,7 +134,7 @@ unZip = next where
     csiz <- getSize
     usiz <- getSize
     -- traceM $ "crc=" ++ show crc ++ "," ++ show fileCRC ++ " csiz=" ++ show csiz ++ "," ++ show fileCSize ++ " usiz=" ++ show usiz ++ "," ++ show (zipEntrySize fileEntry)
-    return $ crc == fileCRC && csiz == fileCSize && usiz == zipEntrySize fileEntry
+    return $ crc == fileCRC && csiz == fileCSize && (usiz ==) `all` zipEntrySize fileEntry
   dataDescBody _ = empty
   central = G.getWord32le >>= centralBody
   centralBody 0x02014b50 = centralHeader >> central
@@ -242,13 +208,12 @@ unZip = next where
       { fileEntry = ZipEntry
         { zipEntryName = name
         , zipEntryTime = mtime
-        , zipEntrySize = extZip64USize
+        , zipEntrySize = if testBit gpf 3 then Nothing else Just extZip64USize
         }
       , fileDecompress = dcomp
       , fileCSize = extZip64CSize
       , fileCRC = crc
       , fileZip64 = extZip64
-      , fileStream = testBit gpf 3
       }
   centralHeader = do
     -- ignore everything
