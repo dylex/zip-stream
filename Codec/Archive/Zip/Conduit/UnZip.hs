@@ -5,7 +5,7 @@ module Codec.Archive.Zip.Conduit.UnZip
   ( ZipEntry(..)
   , ZipInfo(..)
   , ZipError
-  , unZip
+  , unZipStream
   ) where
 
 import           Control.Applicative ((<|>), empty)
@@ -20,9 +20,9 @@ import qualified Data.ByteString.Char8 as BSC
 import qualified Data.Conduit as C
 import qualified Data.Conduit.List as CL
 import           Data.Conduit.Serialization.Binary (sinkGet)
-import           Data.Conduit.Zlib (WindowBits(..), decompress)
-import           Data.Time (LocalTime(..), fromGregorian, TimeOfDay(..))
-import           Data.Word (Word32, Word64)
+import           Data.Conduit.Zlib (decompress)
+import           Data.Time (LocalTime(..), TimeOfDay(..), fromGregorian)
+import           Data.Word (Word16, Word32, Word64)
 
 import           Codec.Archive.Zip.Conduit.Types
 import           Codec.Archive.Zip.Conduit.Internal
@@ -75,6 +75,17 @@ foldGet g z = do
   e <- G.isEmpty
   if e then return z else g z >>= foldGet g
 
+fromDOSTime :: Word16 -> Word16 -> LocalTime
+fromDOSTime time date = LocalTime
+  (fromGregorian
+    (fromIntegral $ date `shiftR` 9 + 1980)
+    (fromIntegral $ date `shiftR` 5 .&. 0x0f)
+    (fromIntegral $ date            .&. 0x1f))
+  (TimeOfDay
+    (fromIntegral $ time `shiftR` 11)
+    (fromIntegral $ time `shiftR` 5 .&. 0x3f)
+    (fromIntegral $ time `shiftL` 1 .&. 0x3f))
+
 -- |Stream a zip file, producing a sequence of entry headers and data blocks.
 -- For example, this might produce: @Left (ZipEntry "directory\/" ...), Left (ZipEntry "directory\/file.txt" ...), Right "hello w", Right "orld!\\n", Left ...@
 -- The final result is summary information taken from the end of the zip file.
@@ -84,8 +95,8 @@ foldGet g z = do
 -- It does not (ironically) support uncompressed zip files that have been created as streams, where file sizes are not known beforehand.
 -- Since it does not use the offset information at the end of the file, it assumes all entries are packed sequentially, which is usually the case.
 -- Any errors are thrown in the underlying monad.
-unZip :: (MonadBase b m, PrimMonad b, MonadThrow m) => C.ConduitM BS.ByteString (Either ZipEntry BS.ByteString) m ZipInfo
-unZip = next where
+unZipStream :: (MonadBase b m, PrimMonad b, MonadThrow m) => C.ConduitM BS.ByteString (Either ZipEntry BS.ByteString) m ZipInfo
+unZipStream = next where
   next = do
     h <- sinkGet header
     case h of
@@ -150,20 +161,10 @@ unZip = next where
     comp <- G.getWord16le
     dcomp <- case comp of
       0 | testBit gpf 3 -> fail "Unsupported uncompressed streaming file data"
-        | otherwise -> return $ C.awaitForever C.yield -- idConduit
-      8 -> return $ decompress (WindowBits (-15))
+        | otherwise -> return idConduit
+      8 -> return $ decompress deflateWindowBits
       _ -> fail $ "Unsupported compression method: " ++ show comp
-    time <- G.getWord16le
-    date <- G.getWord16le
-    let mtime = LocalTime
-          (fromGregorian
-            (fromIntegral $ date `shiftR` 9 + 1980)
-            (fromIntegral $ date `shiftR` 5 .&. 0x0f)
-            (fromIntegral $ date            .&. 0x1f))
-          (TimeOfDay
-            (fromIntegral $ time `shiftR` 11)
-            (fromIntegral $ time `shiftR` 5 .&. 0x3f)
-            (fromIntegral $ time `shiftL` 1 .&. 0x3f))
+    time <- fromDOSTime <$> G.getWord16le <*> G.getWord16le
     crc <- G.getWord32le
     csiz <- G.getWord32le
     usiz <- G.getWord32le
@@ -176,8 +177,8 @@ unZip = next where
           G.isolate z $ case t of
             0x0001 -> do
               -- the zip specs claim "the Local header MUST include BOTH" but "only if the corresponding field is set to 0xFFFFFFFF"
-              usiz' <- if usiz == maxBound then G.getWord64le else return $ extZip64USize ext
-              csiz' <- if csiz == maxBound then G.getWord64le else return $ extZip64CSize ext
+              usiz' <- if usiz == zip64Size then G.getWord64le else return $ extZip64USize ext
+              csiz' <- if csiz == zip64Size then G.getWord64le else return $ extZip64CSize ext
               return ext
                 { extZip64 = True
                 , extZip64USize = usiz'
@@ -207,7 +208,7 @@ unZip = next where
     return FileHeader
       { fileEntry = ZipEntry
         { zipEntryName = name
-        , zipEntryTime = mtime
+        , zipEntryTime = time
         , zipEntrySize = if testBit gpf 3 then Nothing else Just extZip64USize
         }
       , fileDecompress = dcomp

@@ -19,6 +19,7 @@ library
   exposed-modules:     
     Codec.Archive.Zip.Conduit.Types
     Codec.Archive.Zip.Conduit.UnZip
+    Codec.Archive.Zip.Conduit.Zip
   other-modules:
     Codec.Archive.Zip.Conduit.Internal
   default-language:    Haskell2010
@@ -33,8 +34,10 @@ library
     digest,
     exceptions,
     primitive,
+    resourcet,
     time,
-    transformers-base
+    transformers-base,
+    zlib
 
 executable unzip-stream
   main-is: unzip.hs

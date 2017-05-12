@@ -43,5 +43,5 @@ main = do
     exitFailure
   ZipInfo{..} <- C.runConduit 
     $ CB.sourceHandle stdin
-    C..| C.fuseUpstream unZip extract
+    C..| C.fuseUpstream unZipStream extract
   BSC.putStrLn zipComment
