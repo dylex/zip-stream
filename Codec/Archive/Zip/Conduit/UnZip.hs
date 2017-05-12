@@ -23,7 +23,7 @@ import qualified Data.Conduit.List as CL
 import           Data.Conduit.Serialization.Binary (sinkGet)
 import           Data.Conduit.Zlib (WindowBits(..), decompress)
 import           Data.Digest.CRC32 (crc32Update)
-import           Data.Time (UTCTime(..), fromGregorian, timeOfDayToTime, TimeOfDay(..))
+import           Data.Time (LocalTime(..), fromGregorian, TimeOfDay(..))
 import           Data.Typeable (Typeable)
 import           Data.Word (Word32, Word64)
 
@@ -31,8 +31,8 @@ import           Data.Word (Word32, Word64)
 -- As per zip file conventions, directory names should end with a slash and have no data, but this library does not ensure that.
 data ZipEntry = ZipEntry
   { zipEntryName :: BS.ByteString -- ^File name, usually utf-8 encoded, with a trailing slash for directories
-  , zipEntryTime :: UTCTime -- ^Modification time
-  , zipEntrySize :: !Word64 -- ^Size of file data (not checked)
+  , zipEntryTime :: LocalTime -- ^Modification time
+  , zipEntrySize :: !Word64 -- ^Size of file data
   }
 
 -- |Summary information at the end of a zip stream.
@@ -143,9 +143,10 @@ unZip = next where
               (size, crc) <- pass fileCSize
                 C..| (fileDecompress >> CL.sinkNull)
                 C..| sizeCRC
-              -- optional data description
-              (&&) (size == zipEntrySize fileEntry && crc == fileCRC)
-                <$> sinkGet (dataDesc h <|> return True)
+              -- traceM $ "size=" ++ show size ++ "," ++ show (zipEntrySize fileEntry) ++ " crc=" ++ show crc ++ "," ++ show fileCRC
+              -- optional data description (possibly ambiguous!)
+              sinkGet $ (guard =<< dataDesc h) <|> return ()
+              return (size == zipEntrySize fileEntry && crc == fileCRC)
         unless r $ zipError $ BSC.unpack (zipEntryName fileEntry) ++ ": data integrity check failed"
         next
       EndOfCentralDirectory{..} -> do
@@ -158,7 +159,7 @@ unZip = next where
   dataDesc h = -- this takes a bit of flexibility to account for the various cases
     (do -- with signature
       sig <- G.getWord32le
-      guard (sig == 0x06054b50)
+      guard (sig == 0x08074b50)
       dataDescBody h)
     <|> dataDescBody h -- without signature
   dataDescBody FileHeader{..} = do
@@ -166,6 +167,7 @@ unZip = next where
     let getSize = if fileZip64 then G.getWord64le else fromIntegral <$> G.getWord32le
     csiz <- getSize
     usiz <- getSize
+    -- traceM $ "crc=" ++ show crc ++ "," ++ show fileCRC ++ " csiz=" ++ show csiz ++ "," ++ show fileCSize ++ " usiz=" ++ show usiz ++ "," ++ show (zipEntrySize fileEntry)
     return $ crc == fileCRC && csiz == fileCSize && usiz == zipEntrySize fileEntry
   dataDescBody _ = empty
   central = G.getWord32le >>= centralBody
@@ -187,16 +189,15 @@ unZip = next where
       _ -> fail $ "Unsupported compression method: " ++ show comp
     time <- G.getWord16le
     date <- G.getWord16le
-    let mtime = UTCTime (fromGregorian
+    let mtime = LocalTime
+          (fromGregorian
             (fromIntegral $ date `shiftR` 9 + 1980)
             (fromIntegral $ date `shiftR` 5 .&. 0x0f)
-            (fromIntegral $ date            .&. 0x1f)
-          )
-          (timeOfDayToTime $ TimeOfDay
+            (fromIntegral $ date            .&. 0x1f))
+          (TimeOfDay
             (fromIntegral $ time `shiftR` 11)
             (fromIntegral $ time `shiftR` 5 .&. 0x3f)
-            (fromIntegral $ time `shiftL` 1 .&. 0x3f)
-          )
+            (fromIntegral $ time `shiftL` 1 .&. 0x3f))
     crc <- G.getWord32le
     csiz <- G.getWord32le
     usiz <- G.getWord32le
