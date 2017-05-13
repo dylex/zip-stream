@@ -154,7 +154,7 @@ unZipStream = next where
   centralBody sig = fail $ "Unknown header signature: " ++ show sig
   fileHeader = do
     ver <- G.getWord16le
-    when (ver > 45) $ fail $ "Unsupported version: " ++ show ver
+    when (ver > zipVersion) $ fail $ "Unsupported version: " ++ show ver
     gpf <- G.getWord16le
     when (gpf .&. complement 0o06 /= 0) $ fail $ "Unsupported flags: " ++ show gpf
     comp <- G.getWord16le

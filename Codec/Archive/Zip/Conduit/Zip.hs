@@ -2,6 +2,7 @@
 {-# LANGUAGE ViewPatterns #-}
 module Codec.Archive.Zip.Conduit.Zip
   ( ZipOptions(..)
+  , ZipInfo(..)
   , defaultZipOptions
   , ZipEntry(..)
   , ZipData(..)
@@ -93,10 +94,6 @@ countBytes c = stateC $ \s -> c `C.fuseBoth` ((s +) <$> sizeC)
 output :: MonadThrow m => P.Put -> C.ConduitM i BS.ByteString (StateT Word64 m) ()
 output = countBytes . sourcePut
 
--- |The version of this zip program, really just rough indicator of compatibility
-zipVersion :: Word16
-zipVersion = 48
-
 maxBound16 :: Integral n => n
 maxBound16 = fromIntegral (maxBound :: Word16)
 
@@ -129,7 +126,6 @@ zipStream ZipOptions{..} = execStateC 0 $ do
         mcrc = either (const Nothing) (Just . crc32) cdat
     when (namelen > maxBound16) $ zipError $ BSC.unpack zipEntryName ++ ": entry name too long"
     let common = do
-          P.putWord16le $ if z64 then 45 else 20
           P.putWord16le $ isLeft dat ?* bit 3
           P.putWord16le $ comp ?* 8
           P.putWord16le $ time
@@ -137,6 +133,7 @@ zipStream ZipOptions{..} = execStateC 0 $ do
     off <- get
     output $ do
       P.putWord32le 0x04034b50
+      P.putWord16le $ if z64 then 45 else 20
       common
       P.putWord32le $ fromMaybe 0 mcrc
       P.putWord32le $ if z64 then maxBound32 else maybe 0 fromIntegral csiz
@@ -166,23 +163,26 @@ zipStream ZipOptions{..} = execStateC 0 $ do
       (\b -> outsz $ ((fromJust usiz, fromJust mcrc), fromJust csiz) <$ CB.sourceLbs b)
       cdat
     return $ do
+      -- central directory
       let o64 = off >= maxBound32
           l64 = z64 ?* 16 + o64 ?* 8
+          a64 = z64 || o64
       P.putWord32le 0x02014b50
       P.putWord16le zipVersion
+      P.putWord16le $ if a64 then 45 else 20
       common
       P.putWord32le crc
       P.putWord32le $ if z64 then maxBound32 else fromIntegral csz
       P.putWord32le $ if z64 then maxBound32 else fromIntegral usz
       P.putWord16le $ fromIntegral namelen
-      P.putWord16le $ 4 + l64
+      P.putWord16le $ a64 ?* (4 + l64)
       P.putWord16le 0 -- comment length
       P.putWord16le 0 -- disk number
       P.putWord16le 0 -- internal file attributes
       P.putWord32le 0 -- external file attributes
       P.putWord32le $ if o64 then maxBound32 else fromIntegral off
       P.putByteString zipEntryName
-      when (z64 || o64) $ do
+      when a64 $ do
         P.putWord16le 0x0001
         P.putWord16le l64
         when z64 $ do
@@ -217,6 +217,6 @@ zipStream ZipOptions{..} = execStateC 0 $ do
       P.putWord16le $ fromIntegral $ min maxBound16 cnt
       P.putWord16le $ fromIntegral $ min maxBound16 cnt
       P.putWord32le $ fromIntegral $ min maxBound32 cdlen
-      P.putWord32le $ fromIntegral $ max maxBound32 cdoff
+      P.putWord32le $ fromIntegral $ min maxBound32 cdoff
       P.putWord16le $ fromIntegral commlen
       P.putByteString comment

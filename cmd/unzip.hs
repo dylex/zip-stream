@@ -7,9 +7,9 @@ import qualified Data.Conduit as C
 import qualified Data.Conduit.Binary as CB
 import           Data.Time.LocalTime (localTimeToUTC, utc)
 import           System.Directory (createDirectoryIfMissing, setModificationTime)
-import           System.Environment (getArgs)
+import           System.Environment (getProgName, getArgs)
 import           System.Exit (exitFailure)
-import           System.FilePath.Posix (takeDirectory)
+import           System.FilePath.Posix (takeDirectory) -- zip files only use forward slashes
 import           System.IO (stdin, openFile, IOMode(WriteMode), hClose, hSetFileSize, hPutStrLn, stderr)
 
 import           Codec.Archive.Zip.Conduit.UnZip
@@ -37,9 +37,10 @@ extract = C.awaitForever start where
 
 main :: IO ()
 main = do
+  prog <- getProgName
   args <- getArgs
   unless (null args) $ do
-    hPutStrLn stderr "Usage: unzip\nRead a zip file from stdin and extract it in the current directory."
+    hPutStrLn stderr $ "Usage: " ++ prog ++ "\nRead a zip file from stdin and extract it in the current directory."
     exitFailure
   ZipInfo{..} <- C.runConduit 
     $ CB.sourceHandle stdin

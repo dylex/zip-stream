@@ -22,7 +22,7 @@ instance Exception ZipError where
 data ZipEntry = ZipEntry
   { zipEntryName :: ByteString -- ^File name, usually utf-8 encoded, with a trailing slash for directories
   , zipEntryTime :: LocalTime -- ^Modification time
-  , zipEntrySize :: Maybe Word64 -- ^Size of file data (if known)
+  , zipEntrySize :: Maybe Word64 -- ^Size of file data (if known, ignored on zip)
   }
 
 -- |Summary information at the end of a zip stream.
