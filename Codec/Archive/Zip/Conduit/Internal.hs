@@ -2,7 +2,8 @@ module Codec.Archive.Zip.Conduit.Internal
   ( zipError
   , idConduit
   , sizeCRC
-  , zip64Size
+  , sizeC
+  , maxBound32
   , deflateWindowBits
   ) where
 
@@ -31,8 +32,11 @@ passthroughFold f z = C.await >>= maybe
 sizeCRC :: Monad m => C.ConduitM BS.ByteString BS.ByteString m (Word64, Word32)
 sizeCRC = passthroughFold (\(l, c) b -> (l + fromIntegral (BS.length b), crc32Update c b)) (0, 0)
 
-zip64Size :: Integral n => n
-zip64Size = 0xffffffff
+sizeC :: Monad m => C.ConduitM BS.ByteString BS.ByteString m Word64
+sizeC = passthroughFold (\l b -> l + fromIntegral (BS.length b)) 0 -- fst <$> sizeCRC
+
+maxBound32 :: Integral n => n
+maxBound32 = fromIntegral (maxBound :: Word32)
 
 deflateWindowBits :: WindowBits
 deflateWindowBits = WindowBits (-15)

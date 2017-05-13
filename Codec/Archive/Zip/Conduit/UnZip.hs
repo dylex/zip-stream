@@ -20,7 +20,7 @@ import qualified Data.ByteString.Char8 as BSC
 import qualified Data.Conduit as C
 import qualified Data.Conduit.List as CL
 import           Data.Conduit.Serialization.Binary (sinkGet)
-import           Data.Conduit.Zlib (decompress)
+import qualified Data.Conduit.Zlib as CZ
 import           Data.Time (LocalTime(..), TimeOfDay(..), fromGregorian)
 import           Data.Word (Word16, Word32, Word64)
 
@@ -97,15 +97,19 @@ fromDOSTime time date = LocalTime
 -- Any errors are thrown in the underlying monad.
 unZipStream :: (MonadBase b m, PrimMonad b, MonadThrow m) => C.ConduitM BS.ByteString (Either ZipEntry BS.ByteString) m ZipInfo
 unZipStream = next where
-  next = do
-    h <- sinkGet header
+  next = do -- local header, or start central directory
+    h <- sinkGet $ do
+      sig <- G.getWord32le
+      case sig of
+        0x04034b50 -> fileHeader
+        _ -> centralBody sig
     case h of
       FileHeader{..} -> do
         C.yield $ Left fileEntry
         r <- C.mapOutput Right $
           case zipEntrySize fileEntry of
             Nothing -> do -- unknown size
-              ((csize, _), (size, crc)) <- C.fuseBoth sizeCRC
+              (csize, (size, crc)) <- C.fuseBoth sizeC
                 $ fileDecompress
                 C..| sizeCRC
               -- required data description
@@ -128,11 +132,6 @@ unZipStream = next where
         next
       EndOfCentralDirectory{..} -> do
         return endInfo
-  header = do
-    sig <- G.getWord32le
-    case sig of
-      0x04034b50 -> fileHeader
-      _ -> centralBody sig
   dataDesc h = -- this takes a bit of flexibility to account for the various cases
     (do -- with signature
       sig <- G.getWord32le
@@ -162,7 +161,7 @@ unZipStream = next where
     dcomp <- case comp of
       0 | testBit gpf 3 -> fail "Unsupported uncompressed streaming file data"
         | otherwise -> return idConduit
-      8 -> return $ decompress deflateWindowBits
+      8 -> return $ CZ.decompress deflateWindowBits
       _ -> fail $ "Unsupported compression method: " ++ show comp
     time <- fromDOSTime <$> G.getWord16le <*> G.getWord16le
     crc <- G.getWord32le
@@ -177,8 +176,8 @@ unZipStream = next where
           G.isolate z $ case t of
             0x0001 -> do
               -- the zip specs claim "the Local header MUST include BOTH" but "only if the corresponding field is set to 0xFFFFFFFF"
-              usiz' <- if usiz == zip64Size then G.getWord64le else return $ extZip64USize ext
-              csiz' <- if csiz == zip64Size then G.getWord64le else return $ extZip64CSize ext
+              usiz' <- if usiz == maxBound32 then G.getWord64le else return $ extZip64USize ext
+              csiz' <- if csiz == maxBound32 then G.getWord64le else return $ extZip64CSize ext
               return ext
                 { extZip64 = True
                 , extZip64USize = usiz'

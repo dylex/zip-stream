@@ -33,6 +33,7 @@ library
     conduit-extra,
     digest,
     exceptions,
+    mtl,
     primitive,
     resourcet,
     time,
