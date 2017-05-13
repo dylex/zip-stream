@@ -86,7 +86,7 @@ fromDOSTime time date = LocalTime
     (fromIntegral $ time `shiftR` 5 .&. 0x3f)
     (fromIntegral $ time `shiftL` 1 .&. 0x3f))
 
--- |Stream a zip file, producing a sequence of entry headers and data blocks.
+-- |Stream process a zip file, producing a sequence of entry headers and data blocks.
 -- For example, this might produce: @Left (ZipEntry "directory\/" ...), Left (ZipEntry "directory\/file.txt" ...), Right "hello w", Right "orld!\\n", Left ...@
 -- The final result is summary information taken from the end of the zip file.
 -- No state is maintained during processing, and, in particular, any information in the central directory is discarded.

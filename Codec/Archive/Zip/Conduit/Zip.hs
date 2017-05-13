@@ -1,3 +1,4 @@
+-- |Stream the creation of a zip file, e.g., as it's being uploaded.
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ViewPatterns #-}
 module Codec.Archive.Zip.Conduit.Zip
@@ -38,8 +39,9 @@ import           Data.Word (Word16, Word64)
 import           Codec.Archive.Zip.Conduit.Types
 import           Codec.Archive.Zip.Conduit.Internal
 
+-- |Options controlling zip file parameters and features
 data ZipOptions = ZipOptions
-  { zipOpt64 :: Bool -- ^Allow 'ZipDataSource's over 4GB (reduces compatibility in some cases)
+  { zipOpt64 :: Bool -- ^Allow 'ZipDataSource's over 4GB (reduces compatibility in some cases); this is automatically enabled for any files of known size (e.g., 'zipEntrySize')
   , zipOptCompressLevel :: Int -- ^Compress (0 = store only, 9 = best) zipped files (improves compatibility, since some unzip programs don't supported stored, streamed files, including the one in this package)
   , zipOptInfo :: ZipInfo -- ^Other parameters to store in the zip file
   }
@@ -58,15 +60,17 @@ infixr 7 ?*
 True ?* x = x
 False ?* _ = 0
 
+-- |The data contents for a 'ZipEntry'. For empty entries (e.g., directories), use 'mempty'.
 data ZipData m
-  = ZipDataByteString BSL.ByteString
-  | ZipDataSource (C.Source m BS.ByteString)
+  = ZipDataByteString BSL.ByteString -- ^A known ByteString, which will be fully evaluated (not streamed)
+  | ZipDataSource (C.Source m BS.ByteString) -- ^A byte stream producer, streamed (and compressed) directly into the zip
 
 instance Monad m => Monoid (ZipData m) where
   mempty = ZipDataByteString BSL.empty
   mappend (ZipDataByteString a) (ZipDataByteString b) = ZipDataByteString $ mappend a b
   mappend a b = ZipDataSource $ mappend (zipDataSource a) (zipDataSource b)
 
+-- |Use a file on disk as 'ZipData' (@'ZipDataSource' . 'CB.sourceFile'@).
 zipFileData :: MonadResource m => FilePath -> ZipData m
 zipFileData = ZipDataSource . CB.sourceFile
 
@@ -97,6 +101,11 @@ output = countBytes . sourcePut
 maxBound16 :: Integral n => n
 maxBound16 = fromIntegral (maxBound :: Word16)
 
+-- |Stream produce a zip file, reading a sequence of entries with data.
+-- Although file data is never kept in memory (beyond a single 'ZipDataByteString'), the format of zip files requires producing a final directory of entries at the end of the file, consuming an additional ~100 bytes of state per entry during streaming.
+-- The final result is the total size of the zip file.
+--
+-- Depending on options, the resulting zip file should be compatible with most unzipping applications.
 zipStream :: (MonadBase b m, PrimMonad b, MonadThrow m) => ZipOptions -> C.ConduitM (ZipEntry, ZipData m) BS.ByteString m Word64
 zipStream ZipOptions{..} = execStateC 0 $ do
   (cnt, cdir) <- next 0 (mempty :: P.Put)
@@ -120,10 +129,11 @@ zipStream ZipOptions{..} = execStateC 0 $ do
               +++ Z.compress) sdat -- level for Z.compress?
             , dataSize cdat)
           | otherwise = (left (fmap (id &&& fst)) sdat, usiz)
-        z64 = maybe zipOpt64 (maxBound32 <) (max <$> usiz <*> csiz)
+        z64 = maybe (zipOpt64 || any (maxBound32 <) zipEntrySize)
+          (maxBound32 <) (max <$> usiz <*> csiz)
         namelen = BS.length zipEntryName
         (time, date) = toDOSTime zipEntryTime
-        mcrc = either (const Nothing) (Just . crc32) cdat
+        mcrc = either (const Nothing) (Just . crc32) dat
     when (namelen > maxBound16) $ zipError $ BSC.unpack zipEntryName ++ ": entry name too long"
     let common = do
           P.putWord16le $ isLeft dat ?* bit 3
@@ -162,6 +172,7 @@ zipStream ZipOptions{..} = execStateC 0 $ do
         return r)
       (\b -> outsz $ ((fromJust usiz, fromJust mcrc), fromJust csiz) <$ CB.sourceLbs b)
       cdat
+    when (any (usz /=) zipEntrySize) $ zipError $ BSC.unpack zipEntryName ++ ": incorrect zipEntrySize"
     return $ do
       -- central directory
       let o64 = off >= maxBound32
