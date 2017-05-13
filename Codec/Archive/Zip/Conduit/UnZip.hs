@@ -2,10 +2,9 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE RankNTypes #-}
 module Codec.Archive.Zip.Conduit.UnZip
-  ( ZipEntry(..)
+  ( unZipStream
+  , ZipEntry(..)
   , ZipInfo(..)
-  , ZipError
-  , unZipStream
   ) where
 
 import           Control.Applicative ((<|>), empty)
@@ -94,7 +93,7 @@ fromDOSTime time date = LocalTime
 -- This only supports a limited number of zip file features, including deflate compression and zip64.
 -- It does not (ironically) support uncompressed zip files that have been created as streams, where file sizes are not known beforehand.
 -- Since it does not use the offset information at the end of the file, it assumes all entries are packed sequentially, which is usually the case.
--- Any errors are thrown in the underlying monad.
+-- Any errors are thrown in the underlying monad (as 'ZipError's or 'Data.Conduit.Serialization.Binary.ParseError').
 unZipStream :: (MonadBase b m, PrimMonad b, MonadThrow m) => C.ConduitM BS.ByteString (Either ZipEntry BS.ByteString) m ZipInfo
 unZipStream = next where
   next = do -- local header, or start central directory

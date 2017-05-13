@@ -1,7 +1,7 @@
 name:                zip-stream
-version:             0
+version:             0.1
 synopsis:            ZIP archive streaming using conduits
-description:         Process (extract and create) zip files as streams (e.g., over the network), accessing individual files without having to write a zip file to disk (unlike zip-conduit).
+description:         Process (extract and create) zip files as streams (e.g., over the network), accessing contained files without having to write the zip file to disk (unlike zip-conduit).
 license:             BSD3
 license-file:        LICENSE
 author:              Dylan Simon

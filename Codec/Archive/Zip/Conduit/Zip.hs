@@ -2,13 +2,13 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ViewPatterns #-}
 module Codec.Archive.Zip.Conduit.Zip
-  ( ZipOptions(..)
+  ( zipStream
+  , ZipOptions(..)
   , ZipInfo(..)
   , defaultZipOptions
   , ZipEntry(..)
   , ZipData(..)
   , zipFileData
-  , zipStream
   ) where
 
 import qualified Codec.Compression.Zlib.Raw as Z
@@ -60,23 +60,9 @@ infixr 7 ?*
 True ?* x = x
 False ?* _ = 0
 
--- |The data contents for a 'ZipEntry'. For empty entries (e.g., directories), use 'mempty'.
-data ZipData m
-  = ZipDataByteString BSL.ByteString -- ^A known ByteString, which will be fully evaluated (not streamed)
-  | ZipDataSource (C.Source m BS.ByteString) -- ^A byte stream producer, streamed (and compressed) directly into the zip
-
-instance Monad m => Monoid (ZipData m) where
-  mempty = ZipDataByteString BSL.empty
-  mappend (ZipDataByteString a) (ZipDataByteString b) = ZipDataByteString $ mappend a b
-  mappend a b = ZipDataSource $ mappend (zipDataSource a) (zipDataSource b)
-
 -- |Use a file on disk as 'ZipData' (@'ZipDataSource' . 'CB.sourceFile'@).
 zipFileData :: MonadResource m => FilePath -> ZipData m
 zipFileData = ZipDataSource . CB.sourceFile
-
-zipDataSource :: Monad m => ZipData m -> C.Source m BS.ByteString
-zipDataSource (ZipDataByteString b) = CB.sourceLbs b
-zipDataSource (ZipDataSource s) = s
 
 zipData :: Monad m => ZipData m -> Either (C.Source m BS.ByteString) BSL.ByteString
 zipData (ZipDataByteString b) = Right b
@@ -106,6 +92,7 @@ maxBound16 = fromIntegral (maxBound :: Word16)
 -- The final result is the total size of the zip file.
 --
 -- Depending on options, the resulting zip file should be compatible with most unzipping applications.
+-- Any errors are thrown in the underlying monad (as 'ZipError's).
 zipStream :: (MonadBase b m, PrimMonad b, MonadThrow m) => ZipOptions -> C.ConduitM (ZipEntry, ZipData m) BS.ByteString m Word64
 zipStream ZipOptions{..} = execStateC 0 $ do
   (cnt, cdir) <- next 0 (mempty :: P.Put)
