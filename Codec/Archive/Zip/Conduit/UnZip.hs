@@ -14,7 +14,7 @@ import           Control.Monad.Base (MonadBase)
 import           Control.Monad.Catch (MonadThrow)
 import           Control.Monad.Primitive (PrimMonad)
 import qualified Data.Binary.Get as G
-import           Data.Bits ((.&.), complement, testBit, shiftL, shiftR)
+import           Data.Bits ((.&.), testBit, clearBit, shiftL, shiftR)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.Conduit as C
@@ -109,9 +109,8 @@ unZipStream = next where
         r <- C.mapOutput Right $
           case zipEntrySize fileEntry of
             Nothing -> do -- unknown size
-              (csize, (size, crc)) <- C.fuseBoth sizeC
-                $ fileDecompress
-                C..| sizeCRC
+              (csize, (size, crc)) <- inputSize fileDecompress `C.fuseBoth` sizeCRC
+              -- traceM $ "csize=" ++ show csize ++ " size=" ++ show size ++ " crc=" ++ show crc
               -- required data description
               sinkGet $ dataDesc h
                 { fileCSize = csize
@@ -156,7 +155,8 @@ unZipStream = next where
     ver <- G.getWord16le
     when (ver > zipVersion) $ fail $ "Unsupported version: " ++ show ver
     gpf <- G.getWord16le
-    when (gpf .&. complement 0o06 /= 0) $ fail $ "Unsupported flags: " ++ show gpf
+    -- when (gpf .&. complement (bit 1 .|. bit 2 .|. bit 3) /= 0) $ fail $ "Unsupported flags: " ++ show gpf
+    when (gpf `clearBit` 1 `clearBit` 2 `clearBit` 3 /= 0) $ fail $ "Unsupported flags: " ++ show gpf
     comp <- G.getWord16le
     dcomp <- case comp of
       0 | testBit gpf 3 -> fail "Unsupported uncompressed streaming file data"

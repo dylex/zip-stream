@@ -92,11 +92,11 @@ toDOSTime (LocalTime (toGregorian -> (year, month, day)) (TimeOfDay hour mins se
   , fromIntegral (year - 1980) `shiftL` 9 .|. fromIntegral month `shiftL` 5 .|. fromIntegral day
   )
 
-countBytes :: Monad m => C.ConduitM i BS.ByteString m a -> C.ConduitM i BS.ByteString (StateT Word64 m) a
-countBytes c = stateC $ \s -> c `C.fuseBoth` ((s +) <$> sizeC)
+countOutput :: Monad m => C.Conduit i m BS.ByteString -> C.Conduit i (StateT Word64 m) BS.ByteString
+countOutput c = stateC $ \s -> (,) () . (s +) <$> outputSize c
 
 output :: MonadThrow m => P.Put -> C.ConduitM i BS.ByteString (StateT Word64 m) ()
-output = countBytes . sourcePut
+output = countOutput . sourcePut
 
 maxBound16 :: Integral n => n
 maxBound16 = fromIntegral (maxBound :: Word16)
@@ -125,7 +125,7 @@ zipStream ZipOptions{..} = execStateC 0 $ do
         comp = zipOptCompressLevel /= 0 && all (0 /=) usiz
         (cdat, csiz)
           | comp =
-            ( ((`C.fuseBoth` (CZ.compress zipOptCompressLevel deflateWindowBits C..| sizeC))
+            ( ((`C.fuseBoth` (outputSize $ CZ.compress zipOptCompressLevel deflateWindowBits))
               +++ Z.compress) sdat -- level for Z.compress?
             , dataSize cdat)
           | otherwise = (left (fmap (id &&& fst)) sdat, usiz)

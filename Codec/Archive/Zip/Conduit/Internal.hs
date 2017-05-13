@@ -3,7 +3,8 @@ module Codec.Archive.Zip.Conduit.Internal
   , zipError
   , idConduit
   , sizeCRC
-  , sizeC
+  , outputSize
+  , inputSize
   , maxBound32
   , deflateWindowBits
   ) where
@@ -12,6 +13,7 @@ import           Codec.Compression.Zlib.Raw (WindowBits(..))
 import           Control.Monad.Catch (MonadThrow, throwM)
 import qualified Data.ByteString as BS
 import qualified Data.Conduit as C
+import qualified Data.Conduit.Internal as CI
 import           Data.Digest.CRC32 (crc32Update)
 import           Data.Word (Word16, Word32, Word64)
 
@@ -39,6 +41,19 @@ sizeCRC = passthroughFold (\(l, c) b -> (l + fromIntegral (BS.length b), crc32Up
 
 sizeC :: Monad m => C.ConduitM BS.ByteString BS.ByteString m Word64
 sizeC = passthroughFold (\l b -> l + fromIntegral (BS.length b)) 0 -- fst <$> sizeCRC
+
+outputSize :: Monad m => C.Conduit i m BS.ByteString -> C.ConduitM i BS.ByteString m Word64
+outputSize = (C..| sizeC)
+
+inputSize :: Monad m => C.Conduit BS.ByteString m o -> C.ConduitM BS.ByteString o m Word64
+-- inputSize = fuseUpstream sizeC -- won't work because we need to deal with leftovers properly
+inputSize (CI.ConduitM src) = CI.ConduitM $ \rest -> let
+  go n (CI.Done ()) = rest n
+  go n (CI.PipeM m) = CI.PipeM $ go n <$> m
+  go n (CI.Leftover p b) = CI.Leftover (go (n - fromIntegral (BS.length b)) p) b
+  go n (CI.HaveOutput p f o) = CI.HaveOutput (go n p) f o
+  go n (CI.NeedInput p q) = CI.NeedInput (\b -> go (n + fromIntegral (BS.length b)) (p b)) (go n . q)
+  in go 0 (src CI.Done)
 
 maxBound32 :: Integral n => n
 maxBound32 = fromIntegral (maxBound :: Word32)
