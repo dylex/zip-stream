@@ -15,10 +15,6 @@ source-repository head
   type:     git
   location: https://github.com/dylex/zip-stream
 
-flag commands
-  description: Build command-line zip/unzip testing programs
-  default: True
-
 library
   exposed-modules:     
     Codec.Archive.Zip.Conduit.Types
@@ -45,40 +41,34 @@ library
     zlib
 
 executable unzip-stream
-  if !flag(commands)
-    buildable: False
   main-is: unzip.hs
   hs-source-dirs: cmd
   default-language:    Haskell2010
   ghc-options: -Wall
-  if flag(commands)
-    build-depends:
-      base >=4.9 && <5,
-      bytestring,
-      conduit,
-      conduit-extra,
-      directory >= 1.2.3,
-      filepath,
-      time,
-      zip-stream
-  else
-    buildable: False
+  build-depends:
+    base >=4.8 && <5,
+    bytestring,
+    conduit,
+    conduit-extra,
+    directory >= 1.2.2,
+    filepath,
+    time,
+    transformers,
+    zip-stream
 
 executable zip-stream
   main-is: zip.hs
   hs-source-dirs: cmd
   default-language:    Haskell2010
   ghc-options: -Wall
-  if flag(commands)
-    build-depends:
-      base >=4.9 && <5,
-      bytestring,
-      conduit,
-      conduit-extra,
-      directory >= 1.2.6,
-      filepath,
-      resourcet,
-      time,
-      zip-stream
-  else
-    buildable: False
+  build-depends:
+    base >=4.8 && <5,
+    bytestring,
+    conduit,
+    conduit-extra,
+    directory >= 1.2.2,
+    filepath,
+    resourcet,
+    time,
+    transformers,
+    zip-stream

@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE RecordWildCards #-}
 import           Control.Monad (when, unless)
 import           Control.Monad.IO.Class (liftIO)
@@ -6,7 +7,11 @@ import qualified Data.ByteString.Char8 as BSC
 import qualified Data.Conduit as C
 import qualified Data.Conduit.Binary as CB
 import           Data.Time.LocalTime (localTimeToUTC, utc)
-import           System.Directory (createDirectoryIfMissing, setModificationTime)
+import           System.Directory (createDirectoryIfMissing
+#if MIN_VERSION_directory(1,2,3)
+  , setModificationTime
+#endif
+  )
 import           System.Environment (getProgName, getArgs)
 import           System.Exit (exitFailure)
 import           System.FilePath.Posix (takeDirectory) -- zip files only use forward slashes
@@ -26,7 +31,9 @@ extract = C.awaitForever start where
         mapM_ (liftIO . hSetFileSize h . toInteger) zipEntrySize
         write C..| CB.sinkHandle h
         liftIO $ hClose h
+#if MIN_VERSION_directory(1,2,3)
     liftIO $ setModificationTime name $ localTimeToUTC utc zipEntryTime -- FIXME: timezone
+#endif
     where name = BSC.unpack $ BSC.dropWhile ('/' ==) zipEntryName -- should we utf8 decode?
   start (Right _) = fail "Unexpected leading or directory data contents"
   write = C.await >>= maybe
