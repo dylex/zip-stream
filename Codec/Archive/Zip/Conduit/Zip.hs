@@ -32,7 +32,6 @@ import qualified Data.Conduit.Zlib as CZ
 import           Data.Digest.CRC32 (crc32)
 import           Data.Either (isLeft)
 import           Data.Maybe (fromMaybe, fromJust)
-import           Data.Monoid ((<>))
 import           Data.Time (LocalTime(..), TimeOfDay(..), toGregorian)
 import           Data.Word (Word16, Word64)
 
@@ -95,7 +94,7 @@ maxBound16 = fromIntegral (maxBound :: Word16)
 -- Any errors are thrown in the underlying monad (as 'ZipError's).
 zipStream :: (MonadBase b m, PrimMonad b, MonadThrow m) => ZipOptions -> C.ConduitM (ZipEntry, ZipData m) BS.ByteString m Word64
 zipStream ZipOptions{..} = execStateC 0 $ do
-  (cnt, cdir) <- next 0 (mempty :: P.Put)
+  (cnt, cdir) <- next 0 (return ())
   cdoff <- get
   output cdir
   eoff <- get
@@ -105,7 +104,7 @@ zipStream ZipOptions{..} = execStateC 0 $ do
     (return (cnt, dir))
     (\e -> do
       d <- entry e
-      next (succ cnt) $ dir <> d)
+      next (succ cnt) $ dir >> d)
   entry (ZipEntry{..}, zipData -> dat) = do
     let usiz = dataSize dat
         sdat = left ((C..| sizeCRC) . C.toProducer) dat
