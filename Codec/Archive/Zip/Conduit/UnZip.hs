@@ -151,8 +151,8 @@ unZipStream = next where
   centralBody 0x06054b50 = EndOfCentralDirectory <$> endDirectory
   centralBody sig = fail $ "Unknown header signature: " ++ show sig
   fileHeader = do
-    G.getWord8 -- OS Version
     ver <- G.getWord8
+    G.getWord8 -- OS Version
     when (ver > zipVersion) $ fail $ "Unsupported version: " ++ show ver
     gpf <- G.getWord16le
     -- when (gpf .&. complement (bit 1 .|. bit 2 .|. bit 3) /= 0) $ fail $ "Unsupported flags: " ++ show gpf
