@@ -165,7 +165,8 @@ zipStream ZipOptions{..} = execStateC 0 $ do
           l64 = z64 ?* 16 + o64 ?* 8
           a64 = z64 || o64
       P.putWord32le 0x02014b50
-      P.putWord16le zipVersion
+      P.putWord8 osVersion
+      P.putWord8 zipVersion
       P.putWord16le $ if a64 then 45 else 20
       common
       P.putWord32le crc
@@ -192,7 +193,8 @@ zipStream ZipOptions{..} = execStateC 0 $ do
     when z64 $ output $ do
       P.putWord32le 0x06064b50 -- zip64 end
       P.putWord64le 44 -- length of this record
-      P.putWord16le zipVersion
+      P.putWord8 osVersion
+      P.putWord8 zipVersion
       P.putWord16le 45
       P.putWord32le 0 -- disk
       P.putWord32le 0 -- central disk
