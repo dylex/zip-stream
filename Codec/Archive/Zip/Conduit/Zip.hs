@@ -92,7 +92,7 @@ maxBound16 = fromIntegral (maxBound :: Word16)
 -- The final result is the total size of the zip file.
 --
 -- Depending on options, the resulting zip file should be compatible with most unzipping applications.
--- Any errors are thrown in the underlying monad (as 'ZipError's).
+-- Any errors are thrown in the underlying monad (as 'ZipError's or 'Data.Encoding.EncodingException's).
 zipStream :: (MonadBase b m, PrimMonad b, MonadThrow m) => ZipOptions -> C.ConduitM (ZipEntry, ZipData m) BS.ByteString m Word64
 zipStream ZipOptions{..} = execStateC 0 $ do
   (cnt, cdir) <- next 0 (return ())
