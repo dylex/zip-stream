@@ -10,18 +10,20 @@ module Codec.Archive.Zip.Conduit.UnZip
 import           Control.Applicative ((<|>), empty)
 import           Control.Monad (when, unless, guard)
 import           Control.Monad.Base (MonadBase)
-import           Control.Monad.Catch (MonadThrow)
+import           Control.Monad.Catch (MonadThrow(..))
 import           Control.Monad.Primitive (PrimMonad)
 import qualified Data.Binary.Get as G
 import           Data.Bits ((.&.), testBit, clearBit, shiftL, shiftR)
 import qualified Data.ByteString as BS
-import qualified Data.ByteString.Char8 as BSC
 import qualified Data.Conduit as C
 import qualified Data.Conduit.List as CL
 import           Data.Conduit.Serialization.Binary (sinkGet)
 import qualified Data.Conduit.Zlib as CZ
 import           Data.Time (LocalTime(..), TimeOfDay(..), fromGregorian)
 import           Data.Word (Word16, Word32, Word64)
+import           Data.Encoding (decodeStrictByteStringExplicit)
+import           Data.Encoding.CP437
+import           Data.Encoding.UTF8
 
 import           Codec.Archive.Zip.Conduit.Types
 import           Codec.Archive.Zip.Conduit.Internal
@@ -29,7 +31,10 @@ import           Codec.Archive.Zip.Conduit.Internal
 data Header m
   = FileHeader
     { fileDecompress :: C.Conduit BS.ByteString m BS.ByteString
-    , fileEntry :: !ZipEntry
+    , fileHeaderName :: !BS.ByteString
+    , fileNameIsUnicode :: !Bool
+    , fileHeaderTime :: !LocalTime
+    , fileHeaderEntrySize :: Maybe Word64
     , fileCRC :: !Word32
     , fileCSize :: !Word64
     , fileZip64 :: !Bool
@@ -104,9 +109,16 @@ unZipStream = next where
         _ -> centralBody sig
     case h of
       FileHeader{..} -> do
-        C.yield $ Left fileEntry
+        name <- either throwM return $ case fileNameIsUnicode of
+          True  -> decodeStrictByteStringExplicit UTF8 fileHeaderName
+          False -> decodeStrictByteStringExplicit CP437 fileHeaderName
+        C.yield . Left $ ZipEntry
+          { zipEntryName = name
+          , zipEntrySize = fileHeaderEntrySize
+          , zipEntryTime = fileHeaderTime
+          }
         r <- C.mapOutput Right $
-          case zipEntrySize fileEntry of
+          case fileHeaderEntrySize of
             Nothing -> do -- unknown size
               (csize, (size, crc)) <- inputSize fileDecompress `C.fuseBoth` sizeCRC
               -- traceM $ "csize=" ++ show csize ++ " size=" ++ show size ++ " crc=" ++ show crc
@@ -114,9 +126,7 @@ unZipStream = next where
               sinkGet $ dataDesc h
                 { fileCSize = csize
                 , fileCRC = crc
-                , fileEntry = fileEntry
-                  { zipEntrySize = Just size
-                  }
+                , fileHeaderEntrySize = Just size
                 }
             Just usize -> do -- known size
               (size, crc) <- pass fileCSize
@@ -126,7 +136,7 @@ unZipStream = next where
               -- optional data description (possibly ambiguous!)
               sinkGet $ (guard =<< dataDesc h) <|> return ()
               return (size == usize && crc == fileCRC)
-        unless r $ zipError $ BSC.unpack (zipEntryName fileEntry) ++ ": data integrity check failed"
+        unless r $ zipError $ name ++ ": data integrity check failed"
         next
       EndOfCentralDirectory{..} -> do
         return endInfo
@@ -142,7 +152,7 @@ unZipStream = next where
     csiz <- getSize
     usiz <- getSize
     -- traceM $ "crc=" ++ show crc ++ "," ++ show fileCRC ++ " csiz=" ++ show csiz ++ "," ++ show fileCSize ++ " usiz=" ++ show usiz ++ "," ++ show (zipEntrySize fileEntry)
-    return $ crc == fileCRC && csiz == fileCSize && (usiz ==) `all` zipEntrySize fileEntry
+    return $ crc == fileCRC && csiz == fileCSize && (usiz ==) `all` fileHeaderEntrySize
   dataDescBody _ = empty
   central = G.getWord32le >>= centralBody
   centralBody 0x02014b50 = centralHeader >> central
@@ -155,7 +165,7 @@ unZipStream = next where
     when (ver > zipVersion) $ fail $ "Unsupported version: " ++ show ver
     gpf <- G.getWord16le
     -- when (gpf .&. complement (bit 1 .|. bit 2 .|. bit 3) /= 0) $ fail $ "Unsupported flags: " ++ show gpf
-    when (gpf `clearBit` 1 `clearBit` 2 `clearBit` 3 /= 0) $ fail $ "Unsupported flags: " ++ show gpf
+    when (gpf `clearBit` 1 `clearBit` 2 `clearBit` 3 `clearBit` 11 /= 0) $ fail $ "Unsupported flags: " ++ show gpf
     comp <- G.getWord16le
     dcomp <- case comp of
       0 | testBit gpf 3 -> fail "Unsupported uncompressed streaming file data"
@@ -204,11 +214,10 @@ unZipStream = next where
       , extZip64CSize = fromIntegral csiz
       }
     return FileHeader
-      { fileEntry = ZipEntry
-        { zipEntryName = name
-        , zipEntryTime = time
-        , zipEntrySize = if testBit gpf 3 then Nothing else Just extZip64USize
-        }
+      { fileHeaderName = name
+      , fileNameIsUnicode = testBit gpf 11
+      , fileHeaderTime = time
+      , fileHeaderEntrySize = if testBit gpf 3 then Nothing else Just extZip64USize
       , fileDecompress = dcomp
       , fileCSize = extZip64CSize
       , fileCRC = crc

@@ -22,9 +22,9 @@ import           Codec.Archive.Zip.Conduit.UnZip
 extract :: C.Sink (Either ZipEntry BS.ByteString) IO ()
 extract = C.awaitForever start where
   start (Left ZipEntry{..}) = do
-    liftIO $ BSC.putStrLn zipEntryName
+    liftIO $ putStrLn zipEntryName
     liftIO $ createDirectoryIfMissing True (takeDirectory name)
-    if BSC.last zipEntryName == '/'
+    if last zipEntryName == '/'
       then when ((0 /=) `any` zipEntrySize) $ fail $ name ++ ": non-empty directory"
       else do -- C.bracketP
         h <- liftIO $ openFile name WriteMode
@@ -34,7 +34,7 @@ extract = C.awaitForever start where
 #if MIN_VERSION_directory(1,2,3)
     liftIO $ setModificationTime name $ localTimeToUTC utc zipEntryTime -- FIXME: timezone
 #endif
-    where name = BSC.unpack $ BSC.dropWhile ('/' ==) zipEntryName -- should we utf8 decode?
+    where name = dropWhile ('/' ==) zipEntryName -- should we utf8 decode?
   start (Right _) = fail "Unexpected leading or directory data contents"
   write = C.await >>= maybe
     (return ())

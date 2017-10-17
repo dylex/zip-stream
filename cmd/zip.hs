@@ -38,7 +38,7 @@ generate :: (MonadIO m, MonadResource m) => [FilePath] -> C.Source m (ZipEntry, 
 generate (p:paths) = do
   t <- liftIO $ getModificationTime p
   let e = ZipEntry
-        { zipEntryName = BSC.pack $ dropWhile ('/' ==) p
+        { zipEntryName = dropWhile ('/' ==) p
         , zipEntryTime = utcToLocalTime utc t -- FIXME: timezone
         , zipEntrySize = Nothing
         }
@@ -50,7 +50,7 @@ generate (p:paths) = do
 #else
       dl <- liftIO $ filter (`notElem` [".",".."]) . map (p </>) <$> getDirectoryContents p
 #endif
-      C.yield (e{ zipEntryName = zipEntryName e `BSC.snoc` '/', zipEntrySize = Just 0 }, mempty)
+      C.yield (e{ zipEntryName = zipEntryName e ++ "/", zipEntrySize = Just 0 }, mempty)
       generate $ dl ++ paths
     else do
       C.yield (e, zipFileData p)

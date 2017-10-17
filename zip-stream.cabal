@@ -38,7 +38,9 @@ library
     resourcet,
     time,
     transformers-base,
-    zlib
+    zlib,
+    encoding,
+    filepath
 
 executable unzip-stream
   main-is: unzip.hs
