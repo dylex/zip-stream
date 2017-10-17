@@ -15,7 +15,7 @@ import qualified Data.ByteString as BS
 import qualified Data.Conduit as C
 import qualified Data.Conduit.Internal as CI
 import           Data.Digest.CRC32 (crc32Update)
-import           Data.Word (Word8, Word16, Word32, Word64)
+import           Data.Word (Word8, Word32, Word64)
 
 import           Codec.Archive.Zip.Conduit.Types
 
