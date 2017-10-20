@@ -10,20 +10,18 @@ module Codec.Archive.Zip.Conduit.UnZip
 import           Control.Applicative ((<|>), empty)
 import           Control.Monad (when, unless, guard)
 import           Control.Monad.Base (MonadBase)
-import           Control.Monad.Catch (MonadThrow(..))
+import           Control.Monad.Catch (MonadThrow)
 import           Control.Monad.Primitive (PrimMonad)
 import qualified Data.Binary.Get as G
 import           Data.Bits ((.&.), testBit, clearBit, shiftL, shiftR)
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BSC
 import qualified Data.Conduit as C
 import qualified Data.Conduit.List as CL
 import           Data.Conduit.Serialization.Binary (sinkGet)
 import qualified Data.Conduit.Zlib as CZ
 import           Data.Time (LocalTime(..), TimeOfDay(..), fromGregorian)
 import           Data.Word (Word16, Word32, Word64)
-import           Data.Encoding (decodeStrictByteStringExplicit)
-import           Data.Encoding.CP437
-import           Data.Encoding.UTF8
 
 import           Codec.Archive.Zip.Conduit.Types
 import           Codec.Archive.Zip.Conduit.Internal
@@ -31,10 +29,7 @@ import           Codec.Archive.Zip.Conduit.Internal
 data Header m
   = FileHeader
     { fileDecompress :: C.Conduit BS.ByteString m BS.ByteString
-    , fileHeaderName :: !BS.ByteString
-    , fileNameIsUnicode :: !Bool
-    , fileHeaderTime :: !LocalTime
-    , fileHeaderEntrySize :: Maybe Word64
+    , fileEntry :: !ZipEntry
     , fileCRC :: !Word32
     , fileCSize :: !Word64
     , fileZip64 :: !Bool
@@ -98,7 +93,7 @@ fromDOSTime time date = LocalTime
 -- This only supports a limited number of zip file features, including deflate compression and zip64.
 -- It does not (ironically) support uncompressed zip files that have been created as streams, where file sizes are not known beforehand.
 -- Since it does not use the offset information at the end of the file, it assumes all entries are packed sequentially, which is usually the case.
--- Any errors are thrown in the underlying monad (as 'ZipError's, 'Data.Conduit.Serialization.Binary.ParseError's, or 'Data.Encoding.DecodingException's).
+-- Any errors are thrown in the underlying monad (as 'ZipError's or 'Data.Conduit.Serialization.Binary.ParseError').
 unZipStream :: (MonadBase b m, PrimMonad b, MonadThrow m) => C.ConduitM BS.ByteString (Either ZipEntry BS.ByteString) m ZipInfo
 unZipStream = next where
   next = do -- local header, or start central directory
@@ -109,16 +104,9 @@ unZipStream = next where
         _ -> centralBody sig
     case h of
       FileHeader{..} -> do
-        name <- either throwM return $ case fileNameIsUnicode of
-          True  -> decodeStrictByteStringExplicit UTF8 fileHeaderName
-          False -> decodeStrictByteStringExplicit CP437 fileHeaderName
-        C.yield . Left $ ZipEntry
-          { zipEntryName = name
-          , zipEntrySize = fileHeaderEntrySize
-          , zipEntryTime = fileHeaderTime
-          }
+        C.yield $ Left fileEntry
         r <- C.mapOutput Right $
-          case fileHeaderEntrySize of
+          case zipEntrySize fileEntry of
             Nothing -> do -- unknown size
               (csize, (size, crc)) <- inputSize fileDecompress `C.fuseBoth` sizeCRC
               -- traceM $ "csize=" ++ show csize ++ " size=" ++ show size ++ " crc=" ++ show crc
@@ -126,7 +114,9 @@ unZipStream = next where
               sinkGet $ dataDesc h
                 { fileCSize = csize
                 , fileCRC = crc
-                , fileHeaderEntrySize = Just size
+                , fileEntry = fileEntry
+                  { zipEntrySize = Just size
+                  }
                 }
             Just usize -> do -- known size
               (size, crc) <- pass fileCSize
@@ -136,7 +126,7 @@ unZipStream = next where
               -- optional data description (possibly ambiguous!)
               sinkGet $ (guard =<< dataDesc h) <|> return ()
               return (size == usize && crc == fileCRC)
-        unless r $ zipError $ name ++ ": data integrity check failed"
+        unless r $ zipError $ BSC.unpack (zipEntryName fileEntry) ++ ": data integrity check failed"
         next
       EndOfCentralDirectory{..} -> do
         return endInfo
@@ -152,7 +142,7 @@ unZipStream = next where
     csiz <- getSize
     usiz <- getSize
     -- traceM $ "crc=" ++ show crc ++ "," ++ show fileCRC ++ " csiz=" ++ show csiz ++ "," ++ show fileCSize ++ " usiz=" ++ show usiz ++ "," ++ show (zipEntrySize fileEntry)
-    return $ crc == fileCRC && csiz == fileCSize && (usiz ==) `all` fileHeaderEntrySize
+    return $ crc == fileCRC && csiz == fileCSize && (usiz ==) `all` zipEntrySize fileEntry
   dataDescBody _ = empty
   central = G.getWord32le >>= centralBody
   centralBody 0x02014b50 = centralHeader >> central
@@ -215,10 +205,12 @@ unZipStream = next where
       , extZip64CSize = fromIntegral csiz
       }
     return FileHeader
-      { fileHeaderName = name
-      , fileNameIsUnicode = testBit gpf 11
-      , fileHeaderTime = time
-      , fileHeaderEntrySize = if testBit gpf 3 then Nothing else Just extZip64USize
+      { fileEntry = ZipEntry
+        { zipEntryName = name
+        , zipEntryNameIsUTF8 = testBit gpf 11
+        , zipEntryTime = time
+        , zipEntrySize = if testBit gpf 3 then Nothing else Just extZip64USize
+        }
       , fileDecompress = dcomp
       , fileCSize = extZip64CSize
       , fileCRC = crc

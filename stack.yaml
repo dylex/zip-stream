@@ -1,6 +1,6 @@
 resolver: lts-9.9
 packages:
-- '.'
+  - '.'
 extra-deps:
-  - encoding-0.8.2
   - regex-compat-0.93.1
+  - encoding-0.8.2

@@ -15,13 +15,14 @@ import qualified Codec.Compression.Zlib.Raw as Z
 import           Control.Arrow ((&&&), (+++), left)
 import           Control.Monad (when)
 import           Control.Monad.Base (MonadBase)
-import           Control.Monad.Catch (MonadThrow(..))
+import           Control.Monad.Catch (MonadThrow)
 import           Control.Monad.Primitive (PrimMonad)
 import           Control.Monad.State.Strict (StateT, get)
 import           Control.Monad.Trans.Resource (MonadResource)
 import qualified Data.Binary.Put as P
 import           Data.Bits (bit, shiftL, shiftR, (.|.))
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BSC
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Conduit as C
 import qualified Data.Conduit.Binary as CB
@@ -33,8 +34,6 @@ import           Data.Either (isLeft)
 import           Data.Maybe (fromMaybe, fromJust)
 import           Data.Time (LocalTime(..), TimeOfDay(..), toGregorian)
 import           Data.Word (Word16, Word64)
-import           Data.Encoding (encodeStrictByteStringExplicit)
-import           Data.Encoding.UTF8
 
 import           Codec.Archive.Zip.Conduit.Types
 import           Codec.Archive.Zip.Conduit.Internal
@@ -92,7 +91,7 @@ maxBound16 = fromIntegral (maxBound :: Word16)
 -- The final result is the total size of the zip file.
 --
 -- Depending on options, the resulting zip file should be compatible with most unzipping applications.
--- Any errors are thrown in the underlying monad (as 'ZipError's or 'Data.Encoding.EncodingException's).
+-- Any errors are thrown in the underlying monad (as 'ZipError's).
 zipStream :: (MonadBase b m, PrimMonad b, MonadThrow m) => ZipOptions -> C.ConduitM (ZipEntry, ZipData m) BS.ByteString m Word64
 zipStream ZipOptions{..} = execStateC 0 $ do
   (cnt, cdir) <- next 0 (return ())
@@ -103,11 +102,10 @@ zipStream ZipOptions{..} = execStateC 0 $ do
   where
   next cnt dir = C.await >>= maybe
     (return (cnt, dir))
-    (\(e, d) -> do
-        n <- either throwM return $ encodeStrictByteStringExplicit UTF8 (zipEntryName e)
-        d <- entry (e, n, d)
-        next (succ cnt) $ dir >> d)
-  entry (ZipEntry{..}, name, zipData -> dat) = do
+    (\e -> do
+      d <- entry e
+      next (succ cnt) $ dir >> d)
+  entry (ZipEntry{..}, zipData -> dat) = do
     let usiz = dataSize dat
         sdat = left ((C..| sizeCRC) . C.toProducer) dat
         comp = zipOptCompressLevel /= 0 && all (0 /=) usiz
@@ -119,12 +117,12 @@ zipStream ZipOptions{..} = execStateC 0 $ do
           | otherwise = (left (fmap (id &&& fst)) sdat, usiz)
         z64 = maybe (zipOpt64 || any (maxBound32 <) zipEntrySize)
           (maxBound32 <) (max <$> usiz <*> csiz)
-        namelen = BS.length name
+        namelen = BS.length zipEntryName
         (time, date) = toDOSTime zipEntryTime
         mcrc = either (const Nothing) (Just . crc32) dat
-    when (namelen > maxBound16) $ zipError $ zipEntryName ++ ": entry name too long"
+    when (namelen > maxBound16) $ zipError $ BSC.unpack zipEntryName ++ ": entry name too long"
     let common = do
-          P.putWord16le $ bit 11 .|. isLeft dat ?* bit 3
+          P.putWord16le $ zipEntryNameIsUTF8 ?* bit 11 .|. isLeft dat ?* bit 3
           P.putWord16le $ comp ?* 8
           P.putWord16le $ time
           P.putWord16le $ date
@@ -139,7 +137,7 @@ zipStream ZipOptions{..} = execStateC 0 $ do
       P.putWord32le $ if z64 then maxBound32 else maybe 0 fromIntegral usiz
       P.putWord16le $ fromIntegral namelen
       P.putWord16le $ z64 ?* 20
-      P.putByteString name
+      P.putByteString zipEntryName
       when z64 $ do
         P.putWord16le 0x0001
         P.putWord16le 16
@@ -149,7 +147,7 @@ zipStream ZipOptions{..} = execStateC 0 $ do
     ((usz, crc), csz) <- either
       (\cd -> do
         r@((usz, crc), csz) <- outsz cd -- write compressed data
-        when (not z64 && (usz > maxBound32 || csz > maxBound32)) $ zipError $ zipEntryName ++ ": file too large and zipOpt64 disabled"
+        when (not z64 && (usz > maxBound32 || csz > maxBound32)) $ zipError $ BSC.unpack zipEntryName ++ ": file too large and zipOpt64 disabled"
         output $ do
           P.putWord32le 0x08074b50
           P.putWord32le crc
@@ -161,7 +159,7 @@ zipStream ZipOptions{..} = execStateC 0 $ do
         return r)
       (\b -> outsz $ ((fromJust usiz, fromJust mcrc), fromJust csiz) <$ CB.sourceLbs b)
       cdat
-    when (any (usz /=) zipEntrySize) $ zipError $ zipEntryName ++ ": incorrect zipEntrySize"
+    when (any (usz /=) zipEntrySize) $ zipError $ BSC.unpack zipEntryName ++ ": incorrect zipEntrySize"
     return $ do
       -- central directory
       let o64 = off >= maxBound32
@@ -183,7 +181,7 @@ zipStream ZipOptions{..} = execStateC 0 $ do
       P.putWord16le 0 -- internal file attributes
       P.putWord32le 0 -- external file attributes
       P.putWord32le $ if o64 then maxBound32 else fromIntegral off
-      P.putByteString name
+      P.putByteString zipEntryName
       when a64 $ do
         P.putWord16le 0x0001
         P.putWord16le l64

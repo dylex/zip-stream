@@ -4,6 +4,7 @@ import           Control.Monad (when, unless)
 import           Control.Monad.IO.Class (liftIO)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
+import           Data.List (dropWhile, last)
 import qualified Data.Conduit as C
 import qualified Data.Conduit.Binary as CB
 import           Data.Time.LocalTime (localTimeToUTC, utc)
@@ -18,13 +19,15 @@ import           System.FilePath.Posix (takeDirectory) -- zip files only use for
 import           System.IO (stdin, openFile, IOMode(WriteMode), hClose, hSetFileSize, hPutStrLn, stderr)
 
 import           Codec.Archive.Zip.Conduit.UnZip
+import           Codec.Archive.Zip.Conduit.Encoding
 
 extract :: C.Sink (Either ZipEntry BS.ByteString) IO ()
 extract = C.awaitForever start where
-  start (Left ZipEntry{..}) = do
-    liftIO $ putStrLn zipEntryName
+  start (Left e@ZipEntry{..}) = do
+    name <- dropWhile ('/' ==) <$> decodeZipEntryName e
+    liftIO $ putStrLn name
     liftIO $ createDirectoryIfMissing True (takeDirectory name)
-    if last zipEntryName == '/'
+    if last name == '/'
       then when ((0 /=) `any` zipEntrySize) $ fail $ name ++ ": non-empty directory"
       else do -- C.bracketP
         h <- liftIO $ openFile name WriteMode
@@ -34,7 +37,6 @@ extract = C.awaitForever start where
 #if MIN_VERSION_directory(1,2,3)
     liftIO $ setModificationTime name $ localTimeToUTC utc zipEntryTime -- FIXME: timezone
 #endif
-    where name = dropWhile ('/' ==) zipEntryName -- should we utf8 decode?
   start (Right _) = fail "Unexpected leading or directory data contents"
   write = C.await >>= maybe
     (return ())
