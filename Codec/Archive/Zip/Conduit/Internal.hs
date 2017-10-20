@@ -1,5 +1,5 @@
 module Codec.Archive.Zip.Conduit.Internal
-  ( zipVersion
+  ( osVersion, zipVersion
   , zipError
   , idConduit
   , sizeCRC
@@ -15,13 +15,17 @@ import qualified Data.ByteString as BS
 import qualified Data.Conduit as C
 import qualified Data.Conduit.Internal as CI
 import           Data.Digest.CRC32 (crc32Update)
-import           Data.Word (Word16, Word32, Word64)
+import           Data.Word (Word8, Word32, Word64)
 
 import           Codec.Archive.Zip.Conduit.Types
 
--- |The version of this zip program, really just rough indicator of compatibility
-zipVersion :: Word16
+-- | The version of this zip program, really just rough indicator of compatibility
+zipVersion :: Word8
 zipVersion = 48
+
+-- | The OS this implementation tries to be compatible to
+osVersion :: Word8
+osVersion = 0 -- DOS
 
 zipError :: MonadThrow m => String -> m a
 zipError = throwM . ZipError
