@@ -156,7 +156,7 @@ unZipStream = next where
     when (ver > zipVersion) $ fail $ "Unsupported version: " ++ show ver
     gpf <- G.getWord16le
     -- when (gpf .&. complement (bit 1 .|. bit 2 .|. bit 3) /= 0) $ fail $ "Unsupported flags: " ++ show gpf
-    when (gpf `clearBit` 1 `clearBit` 2 `clearBit` 3 /= 0) $ fail $ "Unsupported flags: " ++ show gpf
+    when (gpf `clearBit` 1 `clearBit` 2 `clearBit` 3 `clearBit` 11 /= 0) $ fail $ "Unsupported flags: " ++ show gpf
     comp <- G.getWord16le
     dcomp <- case comp of
       0 | testBit gpf 3 -> fail "Unsupported uncompressed streaming file data"
@@ -207,6 +207,7 @@ unZipStream = next where
     return FileHeader
       { fileEntry = ZipEntry
         { zipEntryName = name
+        , zipEntryNameIsUTF8 = testBit gpf 11
         , zipEntryTime = time
         , zipEntrySize = if testBit gpf 3 then Nothing else Just extZip64USize
         }

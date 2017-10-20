@@ -18,6 +18,7 @@ source-repository head
 library
   exposed-modules:     
     Codec.Archive.Zip.Conduit.Types
+    Codec.Archive.Zip.Conduit.Encoding
     Codec.Archive.Zip.Conduit.UnZip
     Codec.Archive.Zip.Conduit.Zip
   other-modules:
@@ -38,8 +39,10 @@ library
     resourcet,
     time,
     transformers-base,
-    zlib
-
+    zlib,
+    encoding,
+    transformers
+        
 executable unzip-stream
   main-is: unzip.hs
   hs-source-dirs: cmd

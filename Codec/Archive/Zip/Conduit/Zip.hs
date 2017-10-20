@@ -122,7 +122,7 @@ zipStream ZipOptions{..} = execStateC 0 $ do
         mcrc = either (const Nothing) (Just . crc32) dat
     when (namelen > maxBound16) $ zipError $ BSC.unpack zipEntryName ++ ": entry name too long"
     let common = do
-          P.putWord16le $ isLeft dat ?* bit 3
+          P.putWord16le $ zipEntryNameIsUTF8 ?* bit 11 .|. isLeft dat ?* bit 3
           P.putWord16le $ comp ?* 8
           P.putWord16le $ time
           P.putWord16le $ date

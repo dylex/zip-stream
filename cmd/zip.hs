@@ -1,7 +1,7 @@
 {-# LANGUAGE CPP #-}
 import           Control.Monad (filterM, void)
 import           Control.Monad.IO.Class (MonadIO, liftIO)
-import           Control.Monad.Trans.Resource (MonadResource, runResourceT)
+import           Control.Monad.Trans.Resource (MonadResource, runResourceT, MonadThrow)
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.Conduit as C
 import qualified Data.Conduit.Binary as CB
@@ -21,6 +21,7 @@ import           System.FilePath.Posix ((</>)) -- zip files only want forward sl
 import           System.IO (stdout, hPutStrLn, stderr)
 
 import           Codec.Archive.Zip.Conduit.Zip
+import           Codec.Archive.Zip.Conduit.Encoding
 
 opts :: [Opt.OptDescr (ZipOptions -> ZipOptions)]
 opts =
@@ -34,14 +35,11 @@ opts =
     "set zip comment"
   ]
 
-generate :: (MonadIO m, MonadResource m) => [FilePath] -> C.Source m (ZipEntry, ZipData m)
+generate :: (MonadIO m, MonadResource m, MonadThrow m) => [FilePath] -> C.Source m (ZipEntry, ZipData m)
 generate (p:paths) = do
   t <- liftIO $ getModificationTime p
-  let e = ZipEntry
-        { zipEntryName = BSC.pack $ dropWhile ('/' ==) p
-        , zipEntryTime = utcToLocalTime utc t -- FIXME: timezone
-        , zipEntrySize = Nothing
-        }
+  -- FIXME: timezone
+  e <- encodeZipEntry (dropWhile ('/' ==) p) (utcToLocalTime utc t) Nothing
   isd <- liftIO $ doesDirectoryExist p
   if isd
     then do
