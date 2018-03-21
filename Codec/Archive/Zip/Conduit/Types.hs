@@ -5,6 +5,7 @@ import           Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Conduit as C
 import           Data.Conduit.Binary (sourceLbs)
+import           Data.Semigroup (Semigroup(..))
 import           Data.String (IsString(..))
 import           Data.Time.LocalTime (LocalTime)
 import           Data.Typeable (Typeable)
@@ -36,15 +37,18 @@ data ZipEntry = ZipEntry
 -- |The data contents for a 'ZipEntry'. For empty entries (e.g., directories), use 'mempty'.
 data ZipData m
   = ZipDataByteString BSL.ByteString -- ^A known ByteString, which will be fully evaluated (not streamed)
-  | ZipDataSource (C.Source m ByteString) -- ^A byte stream producer, streamed (and compressed) directly into the zip
+  | ZipDataSource (C.ConduitM () ByteString m ()) -- ^A byte stream producer, streamed (and compressed) directly into the zip
+
+instance Monad m => Semigroup (ZipData m) where
+  ZipDataByteString a <> ZipDataByteString b = ZipDataByteString $ mappend a b
+  a <> b = ZipDataSource $ mappend (sourceZipData a) (sourceZipData b)
 
 instance Monad m => Monoid (ZipData m) where
   mempty = ZipDataByteString BSL.empty
-  mappend (ZipDataByteString a) (ZipDataByteString b) = ZipDataByteString $ mappend a b
-  mappend a b = ZipDataSource $ mappend (sourceZipData a) (sourceZipData b)
+  mappend = (<>)
 
 -- |Normalize any 'ZipData' to a simple source
-sourceZipData :: Monad m => ZipData m -> C.Source m ByteString
+sourceZipData :: Monad m => ZipData m -> C.ConduitM () ByteString m ()
 sourceZipData (ZipDataByteString b) = sourceLbs b
 sourceZipData (ZipDataSource s) = s
 
