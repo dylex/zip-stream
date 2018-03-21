@@ -23,7 +23,7 @@ library
   other-modules:
     Codec.Archive.Zip.Conduit.Internal
   default-language:    Haskell2010
-  ghc-options: -Wall -Werror
+  ghc-options: -Wall
   build-depends:       
     base >= 4.9 && < 5,
     binary >= 0.7.2,
@@ -44,7 +44,7 @@ executable unzip-stream
   main-is: unzip.hs
   hs-source-dirs: cmd
   default-language:    Haskell2010
-  ghc-options: -Wall -Werror
+  ghc-options: -Wall
   build-depends:
     base >=4.8 && <5,
     bytestring,
@@ -60,7 +60,7 @@ executable zip-stream
   main-is: zip.hs
   hs-source-dirs: cmd
   default-language:    Haskell2010
-  ghc-options: -Wall -Werror
+  ghc-options: -Wall
   build-depends:
     base >=4.8 && <5,
     bytestring,
