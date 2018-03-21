@@ -7,6 +7,7 @@ import qualified Data.ByteString.Char8 as BSC
 import qualified Data.Conduit as C
 import qualified Data.Conduit.Binary as CB
 import           Data.Time.LocalTime (localTimeToUTC, utc)
+import           Data.Void (Void)
 import           System.Directory (createDirectoryIfMissing
 #if MIN_VERSION_directory(1,2,3)
   , setModificationTime
@@ -19,7 +20,7 @@ import           System.IO (stdin, openFile, IOMode(WriteMode), hClose, hSetFile
 
 import           Codec.Archive.Zip.Conduit.UnZip
 
-extract :: C.Sink (Either ZipEntry BS.ByteString) IO ()
+extract :: C.ConduitM (Either ZipEntry BS.ByteString) Void IO ()
 extract = C.awaitForever start where
   start (Left ZipEntry{..}) = do
     liftIO $ BSC.putStrLn zipEntryName

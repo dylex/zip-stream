@@ -10,7 +10,12 @@ import           Data.Time.LocalTime (utcToLocalTime, utc)
 import qualified System.Console.GetOpt as Opt
 import           System.Directory (doesDirectoryExist, getModificationTime
 #if MIN_VERSION_directory(1,2,6)
-  , isSymbolicLink, listDirectory
+#if MIN_VERSION_directory(1,3,0)
+  , pathIsSymbolicLink
+#else
+  , isSymbolicLink
+#endif
+  , listDirectory
 #else
   , getDirectoryContents
 #endif
@@ -34,7 +39,7 @@ opts =
     "set zip comment"
   ]
 
-generate :: (MonadIO m, MonadResource m) => [FilePath] -> C.Source m (ZipEntry, ZipData m)
+generate :: (MonadIO m, MonadResource m) => [FilePath] -> C.ConduitM () (ZipEntry, ZipData m) m ()
 generate (p:paths) = do
   t <- liftIO $ getModificationTime p
   let e = ZipEntry
@@ -45,10 +50,17 @@ generate (p:paths) = do
   isd <- liftIO $ doesDirectoryExist p
   if isd
     then do
+      dl <- liftIO $
 #if MIN_VERSION_directory(1,2,6)
-      dl <- liftIO $ filterM (fmap not . isSymbolicLink) . map (p </>) =<< listDirectory p
+        filterM (fmap not .
+#if MIN_VERSION_directory(1,3,0)
+          pathIsSymbolicLink
 #else
-      dl <- liftIO $ filter (`notElem` [".",".."]) . map (p </>) <$> getDirectoryContents p
+          isSymbolicLink
+#endif
+          ) . map (p </>) =<< listDirectory p
+#else
+        filter (`notElem` [".",".."]) . map (p </>) <$> getDirectoryContents p
 #endif
       C.yield (e{ zipEntryName = zipEntryName e `BSC.snoc` '/', zipEntrySize = Just 0 }, mempty)
       generate $ dl ++ paths
