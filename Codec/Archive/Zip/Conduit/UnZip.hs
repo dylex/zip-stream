@@ -28,7 +28,7 @@ import           Codec.Archive.Zip.Conduit.Internal
 
 data Header m
   = FileHeader
-    { fileDecompress :: C.Conduit BS.ByteString m BS.ByteString
+    { fileDecompress :: C.ConduitT BS.ByteString BS.ByteString m ()
     , fileEntry :: !ZipEntry
     , fileCRC :: !Word32
     , fileCSize :: !Word64
@@ -53,7 +53,7 @@ data ExtField = ExtField
   }
 -}
 
-pass :: (MonadThrow m, Integral n) => n -> C.Conduit BS.ByteString m BS.ByteString
+pass :: (MonadThrow m, Integral n) => n -> C.ConduitT BS.ByteString BS.ByteString m ()
 pass 0 = return ()
 pass n = C.await >>= maybe
   (zipError $ "EOF in file data, expecting " ++ show ni ++ " more bytes")
@@ -94,7 +94,7 @@ fromDOSTime time date = LocalTime
 -- It does not (ironically) support uncompressed zip files that have been created as streams, where file sizes are not known beforehand.
 -- Since it does not use the offset information at the end of the file, it assumes all entries are packed sequentially, which is usually the case.
 -- Any errors are thrown in the underlying monad (as 'ZipError's or 'Data.Conduit.Serialization.Binary.ParseError').
-unZipStream :: (MonadBase b m, PrimMonad b, MonadThrow m) => C.ConduitM BS.ByteString (Either ZipEntry BS.ByteString) m ZipInfo
+unZipStream :: (MonadBase b m, PrimMonad b, MonadThrow m, PrimMonad m) => C.ConduitM BS.ByteString (Either ZipEntry BS.ByteString) m ZipInfo
 unZipStream = next where
   next = do -- local header, or start central directory
     h <- sinkGet $ do

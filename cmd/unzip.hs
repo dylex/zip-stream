@@ -19,7 +19,7 @@ import           System.IO (stdin, openFile, IOMode(WriteMode), hClose, hSetFile
 
 import           Codec.Archive.Zip.Conduit.UnZip
 
-extract :: C.Sink (Either ZipEntry BS.ByteString) IO ()
+extract :: C.ConduitT (Either ZipEntry BS.ByteString) C.Void IO ()
 extract = C.awaitForever start where
   start (Left ZipEntry{..}) = do
     liftIO $ BSC.putStrLn zipEntryName

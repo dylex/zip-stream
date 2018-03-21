@@ -36,7 +36,7 @@ data ZipEntry = ZipEntry
 -- |The data contents for a 'ZipEntry'. For empty entries (e.g., directories), use 'mempty'.
 data ZipData m
   = ZipDataByteString BSL.ByteString -- ^A known ByteString, which will be fully evaluated (not streamed)
-  | ZipDataSource (C.Source m ByteString) -- ^A byte stream producer, streamed (and compressed) directly into the zip
+  | ZipDataSource (C.ConduitT () ByteString m ()) -- ^A byte stream producer, streamed (and compressed) directly into the zip
 
 instance Monad m => Monoid (ZipData m) where
   mempty = ZipDataByteString BSL.empty
@@ -44,7 +44,7 @@ instance Monad m => Monoid (ZipData m) where
   mappend a b = ZipDataSource $ mappend (sourceZipData a) (sourceZipData b)
 
 -- |Normalize any 'ZipData' to a simple source
-sourceZipData :: Monad m => ZipData m -> C.Source m ByteString
+sourceZipData :: Monad m => ZipData m -> C.ConduitT () ByteString m ()
 sourceZipData (ZipDataByteString b) = sourceLbs b
 sourceZipData (ZipDataSource s) = s
 

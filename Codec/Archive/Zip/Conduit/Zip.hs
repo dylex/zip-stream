@@ -14,7 +14,6 @@ module Codec.Archive.Zip.Conduit.Zip
 import qualified Codec.Compression.Zlib.Raw as Z
 import           Control.Arrow ((&&&), (+++), left)
 import           Control.Monad (when)
-import           Control.Monad.Base (MonadBase)
 import           Control.Monad.Catch (MonadThrow)
 import           Control.Monad.Primitive (PrimMonad)
 import           Control.Monad.State.Strict (StateT, get)
@@ -63,7 +62,7 @@ False ?* _ = 0
 zipFileData :: MonadResource m => FilePath -> ZipData m
 zipFileData = ZipDataSource . CB.sourceFile
 
-zipData :: Monad m => ZipData m -> Either (C.Source m BS.ByteString) BSL.ByteString
+zipData :: Monad m => ZipData m -> Either (C.ConduitT () BS.ByteString m ()) BSL.ByteString
 zipData (ZipDataByteString b) = Right b
 zipData (ZipDataSource s) = Left s
 
@@ -77,7 +76,7 @@ toDOSTime (LocalTime (toGregorian -> (year, month, day)) (TimeOfDay hour mins se
   , fromIntegral (year - 1980) `shiftL` 9 .|. fromIntegral month `shiftL` 5 .|. fromIntegral day
   )
 
-countOutput :: Monad m => C.Conduit i m BS.ByteString -> C.Conduit i (StateT Word64 m) BS.ByteString
+countOutput :: Monad m => C.ConduitT i BS.ByteString m () -> C.ConduitT i BS.ByteString (StateT Word64 m) ()
 countOutput c = stateC $ \s -> (,) () . (s +) <$> outputSize c
 
 output :: MonadThrow m => P.Put -> C.ConduitM i BS.ByteString (StateT Word64 m) ()
@@ -92,7 +91,7 @@ maxBound16 = fromIntegral (maxBound :: Word16)
 --
 -- Depending on options, the resulting zip file should be compatible with most unzipping applications.
 -- Any errors are thrown in the underlying monad (as 'ZipError's).
-zipStream :: (MonadBase b m, PrimMonad b, MonadThrow m) => ZipOptions -> C.ConduitM (ZipEntry, ZipData m) BS.ByteString m Word64
+zipStream :: ({-MonadBase b m,-} PrimMonad m, MonadThrow m) => ZipOptions -> C.ConduitM (ZipEntry, ZipData m) BS.ByteString m Word64
 zipStream ZipOptions{..} = execStateC 0 $ do
   (cnt, cdir) <- next 0 (return ())
   cdoff <- get
