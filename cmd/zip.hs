@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP #-}
+import           Control.Arrow ((+++))
 import           Control.Monad (filterM, void)
 import           Control.Monad.IO.Class (MonadIO, liftIO)
 import           Control.Monad.Trans.Resource (MonadResource, runResourceT)
@@ -6,6 +7,7 @@ import qualified Data.ByteString.Char8 as BSC
 import qualified Data.Conduit as C
 import qualified Data.Conduit.Binary as CB
 import           Data.List (foldl')
+import qualified Data.Text as T
 import           Data.Time.LocalTime (utcToLocalTime, utc)
 import qualified System.Console.GetOpt as Opt
 import           System.Directory (doesDirectoryExist, getModificationTime
@@ -43,7 +45,7 @@ generate :: (MonadIO m, MonadResource m) => [FilePath] -> C.ConduitM () (ZipEntr
 generate (p:paths) = do
   t <- liftIO $ getModificationTime p
   let e = ZipEntry
-        { zipEntryName = BSC.pack $ dropWhile ('/' ==) p
+        { zipEntryName = Right $ BSC.pack $ dropWhile ('/' ==) p
         , zipEntryTime = utcToLocalTime utc t -- FIXME: timezone
         , zipEntrySize = Nothing
         }
@@ -62,7 +64,7 @@ generate (p:paths) = do
 #else
         filter (`notElem` [".",".."]) . map (p </>) <$> getDirectoryContents p
 #endif
-      C.yield (e{ zipEntryName = zipEntryName e `BSC.snoc` '/', zipEntrySize = Just 0 }, mempty)
+      C.yield (e{ zipEntryName = (`T.snoc` '/') +++ (`BSC.snoc` '/') $ zipEntryName e, zipEntrySize = Just 0 }, mempty)
       generate $ dl ++ paths
     else do
       C.yield (e, zipFileData p)

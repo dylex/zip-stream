@@ -23,6 +23,8 @@ import qualified Data.Conduit as C
 import qualified Data.Conduit.List as CL
 import           Data.Conduit.Serialization.Binary (sinkGet)
 import qualified Data.Conduit.Zlib as CZ
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import           Data.Time (LocalTime(..), TimeOfDay(..), fromGregorian)
 import           Data.Word (Word16, Word32, Word64)
 
@@ -136,7 +138,7 @@ unZipStream = next where
               -- optional data description (possibly ambiguous!)
               sinkGet $ (guard =<< dataDesc h) <|> return ()
               return (size == usize && crc == fileCRC)
-        unless r $ zipError $ BSC.unpack (zipEntryName fileEntry) ++ ": data integrity check failed"
+        unless r $ zipError $ either T.unpack BSC.unpack (zipEntryName fileEntry) ++ ": data integrity check failed"
         next
       EndOfCentralDirectory{..} -> do
         return endInfo
@@ -166,7 +168,7 @@ unZipStream = next where
     when (ver > zipVersion) $ fail $ "Unsupported version: " ++ show ver
     gpf <- G.getWord16le
     -- when (gpf .&. complement (bit 1 .|. bit 2 .|. bit 3) /= 0) $ fail $ "Unsupported flags: " ++ show gpf
-    when (gpf `clearBit` 1 `clearBit` 2 `clearBit` 3 /= 0) $ fail $ "Unsupported flags: " ++ show gpf
+    when (gpf `clearBit` 1 `clearBit` 2 `clearBit` 3 `clearBit` 11 /= 0) $ fail $ "Unsupported flags: " ++ show gpf
     comp <- G.getWord16le
     dcomp <- case comp of
       0 | testBit gpf 3 -> fail "Unsupported uncompressed streaming file data"
@@ -216,7 +218,7 @@ unZipStream = next where
       }
     return FileHeader
       { fileEntry = ZipEntry
-        { zipEntryName = name
+        { zipEntryName = if testBit gpf 11 then Left (TE.decodeUtf8 name) else Right name
         , zipEntryTime = time
         , zipEntrySize = if testBit gpf 3 then Nothing else Just extZip64USize
         }

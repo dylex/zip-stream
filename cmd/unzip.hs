@@ -6,6 +6,8 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.Conduit as C
 import qualified Data.Conduit.Binary as CB
+import qualified Data.Text as T
+import qualified Data.Text.IO as TIO
 import           Data.Time.LocalTime (localTimeToUTC, utc)
 import           Data.Void (Void)
 import           System.Directory (createDirectoryIfMissing
@@ -23,9 +25,9 @@ import           Codec.Archive.Zip.Conduit.UnZip
 extract :: C.ConduitM (Either ZipEntry BS.ByteString) Void IO ()
 extract = C.awaitForever start where
   start (Left ZipEntry{..}) = do
-    liftIO $ BSC.putStrLn zipEntryName
+    liftIO $ either TIO.putStrLn BSC.putStrLn zipEntryName
     liftIO $ createDirectoryIfMissing True (takeDirectory name)
-    if BSC.last zipEntryName == '/'
+    if either T.last BSC.last zipEntryName == '/'
       then when ((0 /=) `any` zipEntrySize) $ fail $ name ++ ": non-empty directory"
       else do -- C.bracketP
         h <- liftIO $ openFile name WriteMode
@@ -35,7 +37,7 @@ extract = C.awaitForever start where
 #if MIN_VERSION_directory(1,2,3)
     liftIO $ setModificationTime name $ localTimeToUTC utc zipEntryTime -- FIXME: timezone
 #endif
-    where name = BSC.unpack $ BSC.dropWhile ('/' ==) zipEntryName -- should we utf8 decode?
+    where name = either (T.unpack . T.dropWhile ('/' ==)) (BSC.unpack . BSC.dropWhile ('/' ==)) zipEntryName
   start (Right _) = fail "Unexpected leading or directory data contents"
   write = C.await >>= maybe
     (return ())

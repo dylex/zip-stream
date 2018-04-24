@@ -7,6 +7,7 @@ import qualified Data.Conduit as C
 import           Data.Conduit.Binary (sourceLbs)
 import           Data.Semigroup (Semigroup(..))
 import           Data.String (IsString(..))
+import qualified Data.Text as T
 import           Data.Time.LocalTime (LocalTime)
 import           Data.Typeable (Typeable)
 import           Data.Word (Word64)
@@ -29,7 +30,7 @@ data ZipInfo = ZipInfo
 -- |(The beginning of) a single entry in a zip stream, which may be any file or directory.
 -- As per zip file conventions, directory names should end with a slash and have no data, but this library does not ensure that.
 data ZipEntry = ZipEntry
-  { zipEntryName :: ByteString -- ^File name (in posix format, no leading slashes), usually utf-8 encoded, with a trailing slash for directories
+  { zipEntryName :: Either T.Text ByteString -- ^File name (in posix format, no leading slashes), either UTF-8 encoded text or raw bytes (CP437), with a trailing slash for directories
   , zipEntryTime :: LocalTime -- ^Modification time
   , zipEntrySize :: Maybe Word64 -- ^Size of file data (if known); checked on zipping and also used as hint to enable zip64
   } deriving (Eq, Show)
