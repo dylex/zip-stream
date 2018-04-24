@@ -10,7 +10,7 @@ import           Data.String (IsString(..))
 import qualified Data.Text as T
 import           Data.Time.LocalTime (LocalTime)
 import           Data.Typeable (Typeable)
-import           Data.Word (Word64)
+import           Data.Word (Word32, Word64)
 
 -- |Errors thrown during zip file processing
 newtype ZipError = ZipError String
@@ -33,6 +33,7 @@ data ZipEntry = ZipEntry
   { zipEntryName :: Either T.Text ByteString -- ^File name (in posix format, no leading slashes), either UTF-8 encoded text or raw bytes (CP437), with a trailing slash for directories
   , zipEntryTime :: LocalTime -- ^Modification time
   , zipEntrySize :: Maybe Word64 -- ^Size of file data (if known); checked on zipping and also used as hint to enable zip64
+  , zipEntryExternalAttributes :: Maybe Word32 -- ^Host-dependent attributes, often MS-DOS directory attribute byte (only supported when zipping)
   } deriving (Eq, Show)
 
 -- |The data contents for a 'ZipEntry'. For empty entries (e.g., directories), use 'mempty'.

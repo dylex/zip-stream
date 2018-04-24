@@ -48,6 +48,7 @@ generate (p:paths) = do
         { zipEntryName = Right $ BSC.pack $ dropWhile ('/' ==) p
         , zipEntryTime = utcToLocalTime utc t -- FIXME: timezone
         , zipEntrySize = Nothing
+        , zipEntryExternalAttributes = Nothing
         }
   isd <- liftIO $ doesDirectoryExist p
   if isd

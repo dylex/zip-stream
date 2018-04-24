@@ -192,7 +192,7 @@ zipStream ZipOptions{..} = execStateC 0 $ do
       P.putWord16le 0 -- comment length
       P.putWord16le 0 -- disk number
       P.putWord16le 0 -- internal file attributes
-      P.putWord32le 0 -- external file attributes
+      P.putWord32le $ fromMaybe 0 zipEntryExternalAttributes
       P.putWord32le $ if o64 then maxBound32 else fromIntegral off
       P.putByteString name
       when a64 $ do

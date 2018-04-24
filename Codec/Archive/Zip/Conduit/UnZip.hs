@@ -221,6 +221,7 @@ unZipStream = next where
         { zipEntryName = if testBit gpf 11 then Left (TE.decodeUtf8 name) else Right name
         , zipEntryTime = time
         , zipEntrySize = if testBit gpf 3 then Nothing else Just extZip64USize
+        , zipEntryExternalAttributes = Nothing
         }
       , fileDecompress = dcomp
       , fileCSize = extZip64CSize
