@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE BangPatterns #-}
 module Codec.Archive.Zip.Conduit.Internal
   ( osVersion, zipVersion
   , zipError
@@ -42,14 +43,14 @@ idConduit :: Monad m => C.ConduitM a a m ()
 idConduit = C.awaitForever C.yield
 
 passthroughFold :: Monad m => (a -> b -> a) -> a -> C.ConduitM b b m a
-passthroughFold f z = C.await >>= maybe
+passthroughFold f !z = C.await >>= maybe
   (return z)
   (\x -> do
     C.yield x
     passthroughFold f (f z x))
 
 sizeCRC :: Monad m => C.ConduitM BS.ByteString BS.ByteString m (Word64, Word32)
-sizeCRC = passthroughFold (\(l, c) b -> (l + fromIntegral (BS.length b), crc32Update c b)) (0, 0)
+sizeCRC = passthroughFold (\(!l, !c) b -> (l + fromIntegral (BS.length b), crc32Update c b)) (0, 0)
 
 sizeC :: Monad m => C.ConduitM BS.ByteString BS.ByteString m Word64
 sizeC = passthroughFold (\l b -> l + fromIntegral (BS.length b)) 0 -- fst <$> sizeCRC
