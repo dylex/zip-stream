@@ -52,7 +52,7 @@ main = do
   unless (null args) $ do
     hPutStrLn stderr $ "Usage: " ++ prog ++ "\nRead a zip file from stdin and extract it in the current directory."
     exitFailure
-  ZipInfo{..} <- C.runConduit 
+  ZipInfo{..} <- C.runConduit
     $ CB.sourceHandle stdin
     C..| C.fuseUpstream unZipStream extract
   BSC.putStrLn zipComment

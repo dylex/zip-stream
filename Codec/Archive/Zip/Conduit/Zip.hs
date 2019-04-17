@@ -77,7 +77,7 @@ dataSize (Left _) = Nothing
 dataSize (Right b) = Just $ fromIntegral $ BSL.length b
 
 toDOSTime :: LocalTime -> (Word16, Word16)
-toDOSTime (LocalTime (toGregorian -> (year, month, day)) (TimeOfDay hour mins secs)) = 
+toDOSTime (LocalTime (toGregorian -> (year, month, day)) (TimeOfDay hour mins secs)) =
   ( fromIntegral hour `shiftL` 11 .|. fromIntegral mins `shiftL` 5 .|. truncate secs `shiftR` 1
   , fromIntegral (year - 1980) `shiftL` 9 .|. fromIntegral month `shiftL` 5 .|. fromIntegral day
   )
@@ -97,7 +97,7 @@ maxBound16 = fromIntegral (maxBound :: Word16)
 --
 -- Depending on options, the resulting zip file should be compatible with most unzipping applications.
 -- Any errors are thrown in the underlying monad (as 'ZipError's).
-zipStream :: 
+zipStream ::
   ( MonadThrow m
 #if MIN_VERSION_conduit(1,3,0)
   , PrimMonad m
@@ -110,7 +110,7 @@ zipStream ZipOptions{..} = execStateC 0 $ do
   cdoff <- get
   output cdir
   eoff <- get
-  endDirectory cdoff (eoff - cdoff) cnt 
+  endDirectory cdoff (eoff - cdoff) cnt
   where
   next cnt dir = C.await >>= maybe
     (return (cnt, dir))
