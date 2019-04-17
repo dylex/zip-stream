@@ -32,7 +32,7 @@ data ZipInfo = ZipInfo
 data ZipEntry = ZipEntry
   { zipEntryName :: Either T.Text ByteString -- ^File name (in posix format, no leading slashes), either UTF-8 encoded text or raw bytes (CP437), with a trailing slash for directories
   , zipEntryTime :: LocalTime -- ^Modification time
-  , zipEntrySize :: Maybe Word64 -- ^Size of file data (if known); checked on zipping and also used as hint to enable zip64
+  , zipEntrySize :: Maybe Word64 -- ^Size of file data (if known); checked on zipping and also used as hint to enable zip64. Disables compression for known 0-byte files.
   , zipEntryExternalAttributes :: Maybe Word32 -- ^Host-dependent attributes, often MS-DOS directory attribute byte (only supported when zipping)
   } deriving (Eq, Show)
 

@@ -120,7 +120,9 @@ zipStream ZipOptions{..} = execStateC 0 $ do
   entry (ZipEntry{..}, zipData -> dat) = do
     let usiz = dataSize dat
         sdat = left ((C..| sizeCRC) . C.toProducer) dat
-        comp = zipOptCompressLevel /= 0 && all (0 /=) usiz
+        comp = zipOptCompressLevel /= 0
+               && all (0 /=) usiz
+               && all (0 /=) zipEntrySize
         (cdat, csiz)
           | comp =
             ( ((`C.fuseBoth` (outputSize $ CZ.compress zipOptCompressLevel deflateWindowBits))
