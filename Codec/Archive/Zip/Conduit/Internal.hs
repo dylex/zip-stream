@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE BangPatterns #-}
 module Codec.Archive.Zip.Conduit.Internal
   ( osVersion, zipVersion
@@ -21,13 +20,6 @@ import           Data.Word (Word8, Word32, Word64)
 
 import           Codec.Archive.Zip.Conduit.Types
 
-#if MIN_VERSION_conduit(1,3,0)
-#define ConduitM ConduitT
-#define PRE13(x)
-#else
-#define PRE13(x) x
-#endif
-
 -- | The version of this zip program, really just rough indicator of compatibility
 zipVersion :: Word8
 zipVersion = 48
@@ -39,32 +31,32 @@ osVersion = 0 -- DOS
 zipError :: MonadThrow m => String -> m a
 zipError = throwM . ZipError
 
-idConduit :: Monad m => C.ConduitM a a m ()
+idConduit :: Monad m => C.ConduitT a a m ()
 idConduit = C.awaitForever C.yield
 
-passthroughFold :: Monad m => (a -> b -> a) -> a -> C.ConduitM b b m a
+passthroughFold :: Monad m => (a -> b -> a) -> a -> C.ConduitT b b m a
 passthroughFold f !z = C.await >>= maybe
   (return z)
   (\x -> do
     C.yield x
     passthroughFold f (f z x))
 
-sizeCRC :: Monad m => C.ConduitM BS.ByteString BS.ByteString m (Word64, Word32)
+sizeCRC :: Monad m => C.ConduitT BS.ByteString BS.ByteString m (Word64, Word32)
 sizeCRC = passthroughFold (\(!l, !c) b -> (l + fromIntegral (BS.length b), crc32Update c b)) (0, 0)
 
-sizeC :: Monad m => C.ConduitM BS.ByteString BS.ByteString m Word64
+sizeC :: Monad m => C.ConduitT BS.ByteString BS.ByteString m Word64
 sizeC = passthroughFold (\l b -> l + fromIntegral (BS.length b)) 0 -- fst <$> sizeCRC
 
-outputSize :: Monad m => C.ConduitM i BS.ByteString m () -> C.ConduitM i BS.ByteString m Word64
+outputSize :: Monad m => C.ConduitT i BS.ByteString m () -> C.ConduitT i BS.ByteString m Word64
 outputSize = (C..| sizeC)
 
-inputSize :: Monad m => C.ConduitM BS.ByteString o m () -> C.ConduitM BS.ByteString o m Word64
+inputSize :: Monad m => C.ConduitT BS.ByteString o m () -> C.ConduitT BS.ByteString o m Word64
 -- inputSize = fuseUpstream sizeC -- won't work because we need to deal with leftovers properly
-inputSize (CI.ConduitM src) = CI.ConduitM $ \rest -> let
+inputSize (CI.ConduitT src) = CI.ConduitT $ \rest -> let
   go n (CI.Done ()) = rest n
   go n (CI.PipeM m) = CI.PipeM $ go n <$> m
   go n (CI.Leftover p b) = CI.Leftover (go (n - fromIntegral (BS.length b)) p) b
-  go n (CI.HaveOutput p PRE13(f) o) = CI.HaveOutput (go n p) PRE13(f) o
+  go n (CI.HaveOutput p o) = CI.HaveOutput (go n p) o
   go n (CI.NeedInput p q) = CI.NeedInput (\b -> go (n + fromIntegral (BS.length b)) (p b)) (go n . q)
   in go 0 (src CI.Done)
 

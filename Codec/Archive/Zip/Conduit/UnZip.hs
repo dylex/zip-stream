@@ -1,5 +1,4 @@
 -- |Stream the extraction of a zip file, e.g., as it's being downloaded.
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE RankNTypes #-}
 module Codec.Archive.Zip.Conduit.UnZip
@@ -10,9 +9,6 @@ module Codec.Archive.Zip.Conduit.UnZip
 
 import           Control.Applicative ((<|>), empty)
 import           Control.Monad (when, unless, guard)
-#if !MIN_VERSION_conduit(1,3,0)
-import           Control.Monad.Base (MonadBase)
-#endif
 import           Control.Monad.Catch (MonadThrow)
 import           Control.Monad.Primitive (PrimMonad)
 import qualified Data.Binary.Get as G
@@ -20,7 +16,7 @@ import           Data.Bits ((.&.), testBit, clearBit, shiftL, shiftR)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.Conduit as C
-import qualified Data.Conduit.List as CL
+import qualified Data.Conduit.Combinators as CC
 import           Data.Conduit.Serialization.Binary (sinkGet)
 import qualified Data.Conduit.Zlib as CZ
 import qualified Data.Text as T
@@ -101,11 +97,7 @@ fromDOSTime time date = LocalTime
 -- Any errors are thrown in the underlying monad (as 'ZipError's or 'Data.Conduit.Serialization.Binary.ParseError').
 unZipStream ::
   ( MonadThrow m
-#if MIN_VERSION_conduit(1,3,0)
   , PrimMonad m
-#else
-  , MonadBase b m, PrimMonad b
-#endif
   ) => C.ConduitM BS.ByteString (Either ZipEntry BS.ByteString) m ZipInfo
 unZipStream = next where
   next = do -- local header, or start central directory
@@ -132,7 +124,7 @@ unZipStream = next where
                 }
             Just usize -> do -- known size
               (size, crc) <- pass fileCSize
-                C..| (fileDecompress >> CL.sinkNull)
+                C..| (fileDecompress >> CC.sinkNull)
                 C..| sizeCRC
               -- traceM $ "size=" ++ show size ++ "," ++ show (zipEntrySize fileEntry) ++ " crc=" ++ show crc ++ "," ++ show fileCRC
               -- optional data description (possibly ambiguous!)

@@ -1,5 +1,4 @@
 -- |Stream the creation of a zip file, e.g., as it's being uploaded.
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ViewPatterns #-}
 module Codec.Archive.Zip.Conduit.Zip
@@ -15,9 +14,6 @@ module Codec.Archive.Zip.Conduit.Zip
 import qualified Codec.Compression.Zlib.Raw as Z
 import           Control.Arrow ((&&&), (+++), left)
 import           Control.Monad (when)
-#if !MIN_VERSION_conduit(1,3,0)
-import           Control.Monad.Base (MonadBase)
-#endif
 import           Control.Monad.Catch (MonadThrow)
 import           Control.Monad.Primitive (PrimMonad)
 import           Control.Monad.State.Strict (StateT, get)
@@ -29,6 +25,7 @@ import qualified Data.ByteString.Char8 as BSC
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Conduit as C
 import qualified Data.Conduit.Binary as CB
+import qualified Data.Conduit.Combinators as CC
 import           Data.Conduit.Lift (stateC, execStateC)
 import           Data.Conduit.Serialization.Binary (sourcePut)
 import qualified Data.Conduit.Zlib as CZ
@@ -46,7 +43,7 @@ import           Codec.Archive.Zip.Conduit.Internal
 -- |Options controlling zip file parameters and features
 data ZipOptions = ZipOptions
   { zipOpt64 :: Bool -- ^Allow 'ZipDataSource's over 4GB (reduces compatibility in some cases); this is automatically enabled for any files of known size (e.g., 'zipEntrySize')
-  , zipOptCompressLevel :: Int -- ^Compress (0 = store only, 9 = best) zipped files (improves compatibility, since some unzip programs don't supported stored, streamed files, including the one in this package)
+  , zipOptCompressLevel :: Int -- ^Compress zipped files (0 = store only, 1 = minimal, 9 = best; non-zero improves compatibility, since some unzip programs don't supported stored, streamed files, including the one in this package)
   , zipOptInfo :: ZipInfo -- ^Other parameters to store in the zip file
   }
 
@@ -64,9 +61,9 @@ infixr 7 ?*
 True ?* x = x
 False ?* _ = 0
 
--- |Use a file on disk as 'ZipData' (@'ZipDataSource' . 'CB.sourceFile'@).
+-- |Use a file on disk as 'ZipData' (@'ZipDataSource' . 'CC.sourceFile'@).
 zipFileData :: MonadResource m => FilePath -> ZipData m
-zipFileData = ZipDataSource . CB.sourceFile
+zipFileData = ZipDataSource . CC.sourceFile
 
 zipData :: Monad m => ZipData m -> Either (C.ConduitM () BS.ByteString m ()) BSL.ByteString
 zipData (ZipDataByteString b) = Right b
@@ -99,11 +96,7 @@ maxBound16 = fromIntegral (maxBound :: Word16)
 -- Any errors are thrown in the underlying monad (as 'ZipError's).
 zipStream ::
   ( MonadThrow m
-#if MIN_VERSION_conduit(1,3,0)
   , PrimMonad m
-#else
-  , MonadBase b m, PrimMonad b
-#endif
   ) => ZipOptions -> C.ConduitM (ZipEntry, ZipData m) BS.ByteString m Word64
 zipStream ZipOptions{..} = execStateC 0 $ do
   (cnt, cdir) <- next 0 (return ())
