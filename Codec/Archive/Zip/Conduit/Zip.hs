@@ -112,7 +112,7 @@ zipStream ZipOptions{..} = execStateC 0 $ do
       next (succ cnt) $ dir >> d)
   entry (ZipEntry{..}, zipData -> dat) = do
     let usiz = dataSize dat
-        sdat = left ((C..| sizeCRC) . C.toProducer) dat
+        sdat = left (\x -> C.toProducer x C..| sizeCRC) dat
         comp = zipOptCompressLevel /= 0
                && all (0 /=) usiz
                && all (0 /=) zipEntrySize
