@@ -1,6 +1,7 @@
 -- |Stream the creation of a zip file, e.g., as it's being uploaded.
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE BangPatterns #-}
 module Codec.Archive.Zip.Conduit.Zip
   ( zipStream
   , ZipOptions(..)
@@ -130,7 +131,7 @@ zipStream ZipOptions{..} = execStateC 0 $ do
         mcrc = either (const Nothing) (Just . crc32) dat
     when (namelen > maxBound16) $ zipError $ either T.unpack BSC.unpack zipEntryName ++ ": entry name too long"
     let common = do
-          P.putWord16le $ isLeft dat ?* bit 3 .|. isLeft zipEntryName ?* bit 11
+          P.putWord16le $! isLeft dat ?* bit 3 .|. isLeft zipEntryName ?* bit 11
           P.putWord16le $ comp ?* 8
           P.putWord16le $ time
           P.putWord16le $ date
@@ -151,8 +152,8 @@ zipStream ZipOptions{..} = execStateC 0 $ do
         P.putWord16le 16
         P.putWord64le $ fromMaybe 0 usiz
         P.putWord64le $ fromMaybe 0 csiz
-    let outsz c = stateC $ \o -> (id &&& (o +) . snd) <$> c
-    ((usz, crc), csz) <- either
+    let outsz c = stateC $ \(!o) -> (id &&& (o +) . snd) <$> c
+    ((usz, crc), !csz) <- either
       (\cd -> do
         r@((usz, crc), csz) <- outsz cd -- write compressed data
         when (not z64 && (usz > maxBound32 || csz > maxBound32)) $ zipError $ either T.unpack BSC.unpack zipEntryName ++ ": file too large and zipOpt64 disabled"
