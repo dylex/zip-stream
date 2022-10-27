@@ -117,10 +117,18 @@ zipStream ZipOptions{..} = execStateC 0 $ do
         comp = zipOptCompressLevel /= 0
                && all (0 /=) usiz
                && all (0 /=) zipEntrySize
+        compressPlainBs =
+          Z.compressWith
+            Z.defaultCompressParams
+              { Z.compressLevel =
+                  if zipOptCompressLevel == -1
+                    then Z.defaultCompression
+                    else Z.compressionLevel zipOptCompressLevel
+              }
         (cdat, csiz)
           | comp =
             ( ((`C.fuseBoth` (outputSize $ CZ.compress zipOptCompressLevel deflateWindowBits))
-              +++ Z.compress) sdat -- level for Z.compress?
+              +++ compressPlainBs) sdat
             , dataSize cdat)
           | otherwise = (left (fmap (id &&& fst)) sdat, usiz)
         z64 = maybe (zipOpt64 || any (maxBound32 <) zipEntrySize)
