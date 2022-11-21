@@ -2,7 +2,6 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE StrictData #-}
 module Codec.Archive.Zip.Conduit.Zip
   ( zipStream
   , ZipOptions(..)
@@ -45,9 +44,9 @@ import           Codec.Archive.Zip.Conduit.Internal
 
 -- |Options controlling zip file parameters and features
 data ZipOptions = ZipOptions
-  { zipOpt64 :: Bool -- ^Allow 'ZipDataSource's over 4GB (reduces compatibility in some cases); this is automatically enabled for any files of known size (e.g., 'zipEntrySize')
-  , zipOptCompressLevel :: Int -- ^Compress zipped files (0 = store only, 1 = minimal, 9 = best; non-zero improves compatibility, since some unzip programs don't supported stored, streamed files, including the one in this package)
-  , zipOptInfo :: ZipInfo -- ^Other parameters to store in the zip file
+  { zipOpt64 :: !Bool -- ^Allow 'ZipDataSource's over 4GB (reduces compatibility in some cases); this is automatically enabled for any files of known size (e.g., 'zipEntrySize')
+  , zipOptCompressLevel :: !Int -- ^Compress zipped files (0 = store only, 1 = minimal, 9 = best; non-zero improves compatibility, since some unzip programs don't supported stored, streamed files, including the one in this package)
+  , zipOptInfo :: !ZipInfo -- ^Other parameters to store in the zip file
   }
 
 defaultZipOptions :: ZipOptions
@@ -92,83 +91,65 @@ maxBound16 :: Integral n => n
 maxBound16 = fromIntegral (maxBound :: Word16)
 
 data CommonFileHeaderInfo = CommonFileHeaderInfo
-  { cfhi_isStreamingEntry :: Bool
-  , cfhi_hasUtf8Filename :: Bool
-  , cfhi_isCompressed :: Bool
-  , cfhi_time :: Word16
-  , cfhi_date :: Word16
+  { cfhiIsStreamingEntry :: !Bool
+  , cfhiHasUtf8Filename :: !Bool
+  , cfhiIsCompressed :: !Bool
+  , cfhiTime :: !Word16
+  , cfhiDate :: !Word16
   } deriving (Eq, Ord, Show)
 
 putCommonFileHeaderPart :: CommonFileHeaderInfo -> P.PutM ()
-putCommonFileHeaderPart commonFileHeaderInfo = do
-  let CommonFileHeaderInfo
-        { cfhi_isStreamingEntry = isStreamingEntry
-        , cfhi_hasUtf8Filename = hasUtf8Filename
-        , cfhi_isCompressed = isCompressed
-        , cfhi_time = time
-        , cfhi_date = date
-        } = commonFileHeaderInfo
-  P.putWord16le $ isStreamingEntry ?* bit 3 .|. hasUtf8Filename ?* bit 11
-  P.putWord16le $ isCompressed ?* 8
-  P.putWord16le $ time
-  P.putWord16le $ date
+putCommonFileHeaderPart CommonFileHeaderInfo{..} = do
+  P.putWord16le $ cfhiIsStreamingEntry ?* bit 3 .|. cfhiHasUtf8Filename ?* bit 11
+  P.putWord16le $ cfhiIsCompressed ?* 8
+  P.putWord16le $ cfhiTime
+  P.putWord16le $ cfhiDate
 
 -- | This is retained in memory until the end of the archive is written.
 --
 -- To avoid space leaks, this should contain only strict data.
 data CentralDirectoryInfo = CentralDirectoryInfo
-  { cdi_off :: Word64
-  , cdi_z64 :: Bool
-  , cdi_commonFileHeaderInfo :: CommonFileHeaderInfo
-  , cdi_crc :: Word32
-  , cdi_usz :: Word64
-  , cdi_name :: BSC.ByteString
-  , cdi_csz :: Word64
-  , cdi_zipEntryExternalAttributes :: Maybe Word32 -- lazy Maybe must be e.g. via `force` at creation
+  { cdiOff :: !Word64
+  , cdiZ64 :: !Bool
+  , cdiCommonFileHeaderInfo :: !CommonFileHeaderInfo
+  , cdiCrc :: !Word32
+  , cdiUsz :: !Word64
+  , cdiName :: !BSC.ByteString
+  , cdiCsz :: !Word64
+  , cdiZipEntryExternalAttributes :: !(Maybe Word32) -- lazy Maybe must be e.g. via `force` at creation
   } deriving (Eq, Ord, Show)
 
 putCentralDirectory :: CentralDirectoryInfo -> P.PutM ()
-putCentralDirectory centralDirectoryInfo = do
-  let CentralDirectoryInfo
-        { cdi_off = off
-        , cdi_z64 = z64
-        , cdi_commonFileHeaderInfo = commonFileHeaderInfo
-        , cdi_crc = crc
-        , cdi_usz = usz
-        , cdi_name = name
-        , cdi_csz = csz
-        , cdi_zipEntryExternalAttributes = zipEntryExternalAttributes
-        } = centralDirectoryInfo
-
+putCentralDirectory CentralDirectoryInfo{..} = do
   -- central directory
-  let o64 = off >= maxBound32
-      l64 = z64 ?* 16 + o64 ?* 8
-      a64 = z64 || o64
+  let o64 = cdiOff >= maxBound32
+      l64 = cdiZ64 ?* 16 + o64 ?* 8
+      a64 = cdiZ64 || o64
   P.putWord32le 0x02014b50
   P.putWord8 zipVersion
   P.putWord8 osVersion
   P.putWord8 $ if a64 then 45 else 20
   P.putWord8 osVersion
-  putCommonFileHeaderPart commonFileHeaderInfo
-  P.putWord32le crc
-  P.putWord32le $ if z64 then maxBound32 else fromIntegral csz
-  P.putWord32le $ if z64 then maxBound32 else fromIntegral usz
-  P.putWord16le $ fromIntegral (BS.length name)
+  putCommonFileHeaderPart cdiCommonFileHeaderInfo
+  P.putWord32le cdiCrc
+  P.putWord32le $ if cdiZ64 then maxBound32 else fromIntegral cdiCsz
+  P.putWord32le $ if cdiZ64 then maxBound32 else fromIntegral cdiUsz
+  P.putWord16le $ fromIntegral (BS.length cdiName)
   P.putWord16le $ a64 ?* (4 + l64)
   P.putWord16le 0 -- comment length
   P.putWord16le 0 -- disk number
   P.putWord16le 0 -- internal file attributes
-  P.putWord32le $ fromMaybe 0 zipEntryExternalAttributes
-  P.putWord32le $ if o64 then maxBound32 else fromIntegral off
-  P.putByteString name
+  P.putWord32le $ fromMaybe 0 cdiZipEntryExternalAttributes
+  P.putWord32le $ if o64 then maxBound32 else fromIntegral cdiOff
+  P.putByteString cdiName
   when a64 $ do
     P.putWord16le 0x0001
     P.putWord16le l64
-    when z64 $ do
-      P.putWord64le usz
-      P.putWord64le csz
+    when cdiZ64 $ do
+      P.putWord64le cdiUsz
+      P.putWord64le cdiCsz
     when o64 $
-      P.putWord64le off
+      P.putWord64le cdiOff
 
 -- |Stream produce a zip file, reading a sequence of entries with data.
 -- Although file data is never kept in memory (beyond a single 'ZipDataByteString'), the format of zip files requires producing a final directory of entries at the end of the file, consuming an additional ~100 bytes of state per entry during streaming.
@@ -195,10 +176,10 @@ zipStream ZipOptions{..} = execStateC 0 $ do
   entry (ZipEntry{..}, zipData -> dat) = do
     let usiz = dataSize dat
         sdat = left (\x -> C.toProducer x C..| sizeCRC) dat
-        isCompressed = zipOptCompressLevel /= 0
+        cfhiIsCompressed = zipOptCompressLevel /= 0
                && all (0 /=) usiz
                && all (0 /=) zipEntrySize
-        isStreamingEntry = isLeft dat
+        cfhiIsStreamingEntry = isLeft dat
         compressPlainBs =
           Z.compressWith
             Z.defaultCompressParams
@@ -208,70 +189,57 @@ zipStream ZipOptions{..} = execStateC 0 $ do
                     else Z.compressionLevel zipOptCompressLevel
               }
         (cdat, csiz)
-          | isCompressed =
+          | cfhiIsCompressed =
             ( ((`C.fuseBoth` (outputSize $ CZ.compress zipOptCompressLevel deflateWindowBits))
               +++ compressPlainBs) sdat
             , dataSize cdat)
           | otherwise = (left (fmap (id &&& fst)) sdat, usiz)
-        z64 = maybe (zipOpt64 || any (maxBound32 <) zipEntrySize)
+        cdiZ64 = maybe (zipOpt64 || any (maxBound32 <) zipEntrySize)
           (maxBound32 <) (max <$> usiz <*> csiz)
-        hasUtf8Filename = isLeft zipEntryName
-        name = either TE.encodeUtf8 id zipEntryName
-        namelen = BS.length name
-        (time, date) = toDOSTime zipEntryTime
+        cfhiHasUtf8Filename = isLeft zipEntryName
+        cdiName = either TE.encodeUtf8 id zipEntryName
+        namelen = BS.length cdiName
+        (cfhiTime, cfhiDate) = toDOSTime zipEntryTime
         mcrc = either (const Nothing) (Just . crc32) dat
-        !commonFileHeaderInfo = CommonFileHeaderInfo
-          { cfhi_isStreamingEntry = isStreamingEntry
-          , cfhi_hasUtf8Filename = hasUtf8Filename
-          , cfhi_isCompressed = isCompressed
-          , cfhi_time = time
-          , cfhi_date = date
-          }
+        !cdiCommonFileHeaderInfo = CommonFileHeaderInfo{..}
     when (namelen > maxBound16) $ zipError $ either T.unpack BSC.unpack zipEntryName ++ ": entry name too long"
-    off <- get
+    cdiOff <- get
     output $ do
       P.putWord32le 0x04034b50
-      P.putWord8 $ if z64 then 45 else 20
+      P.putWord8 $ if cdiZ64 then 45 else 20
       P.putWord8 osVersion
-      putCommonFileHeaderPart commonFileHeaderInfo
+      putCommonFileHeaderPart cdiCommonFileHeaderInfo
       P.putWord32le $ fromMaybe 0 mcrc
-      P.putWord32le $ if z64 then maxBound32 else maybe 0 fromIntegral csiz
-      P.putWord32le $ if z64 then maxBound32 else maybe 0 fromIntegral usiz
+      P.putWord32le $ if cdiZ64 then maxBound32 else maybe 0 fromIntegral csiz
+      P.putWord32le $ if cdiZ64 then maxBound32 else maybe 0 fromIntegral usiz
       P.putWord16le $ fromIntegral namelen
-      P.putWord16le $ z64 ?* 20
-      P.putByteString name
-      when z64 $ do
+      P.putWord16le $ cdiZ64 ?* 20
+      P.putByteString cdiName
+      when cdiZ64 $ do
         P.putWord16le 0x0001
         P.putWord16le 16
         P.putWord64le $ fromMaybe 0 usiz
         P.putWord64le $ fromMaybe 0 csiz
     let outsz c = stateC $ \(!o) -> (id &&& (o +) . snd) <$> c
-    ((usz, crc), csz) <- either
+    ((cdiUsz, cdiCrc), cdiCsz) <- either
       (\cd -> do
         r@((usz, crc), csz) <- outsz cd -- write compressed data
-        when (not z64 && (usz > maxBound32 || csz > maxBound32)) $ zipError $ either T.unpack BSC.unpack zipEntryName ++ ": file too large and zipOpt64 disabled"
+        when (not cdiZ64 && (usz > maxBound32 || csz > maxBound32)) $ zipError $ either T.unpack BSC.unpack zipEntryName ++ ": file too large and zipOpt64 disabled"
         output $ do
           P.putWord32le 0x08074b50
           P.putWord32le crc
           let putsz
-                | z64 = P.putWord64le
+                | cdiZ64 = P.putWord64le
                 | otherwise = P.putWord32le . fromIntegral
           putsz csz
           putsz usz
         return r)
       (\b -> outsz $ ((fromJust usiz, fromJust mcrc), fromJust csiz) <$ CB.sourceLbs b)
       cdat
-    when (any (usz /=) zipEntrySize) $ zipError $ either T.unpack BSC.unpack zipEntryName ++ ": incorrect zipEntrySize"
+    when (any (cdiUsz /=) zipEntrySize) $ zipError $ either T.unpack BSC.unpack zipEntryName ++ ": incorrect zipEntrySize"
     let !centralDirectoryInfo = CentralDirectoryInfo
-          { cdi_off = off
-          , cdi_z64 = z64
-          , cdi_commonFileHeaderInfo = commonFileHeaderInfo
-          , cdi_crc = crc
-          , cdi_usz = usz
-          , cdi_name = name
-          , cdi_csz = csz
-          , cdi_zipEntryExternalAttributes = force zipEntryExternalAttributes
-          }
+          { cdiZipEntryExternalAttributes = force zipEntryExternalAttributes
+          , .. }
     return $ putCentralDirectory centralDirectoryInfo
 
   endDirectory cdoff cdlen cnt = do
