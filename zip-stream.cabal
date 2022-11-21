@@ -31,6 +31,7 @@ library
     bytestring,
     conduit >= 1.3,
     conduit-extra,
+    deepseq,
     digest,
     exceptions,
     mtl,
@@ -75,3 +76,19 @@ executable zip-stream
     time,
     transformers,
     zip-stream
+
+test-suite tests
+  type: exitcode-stdio-1.0
+  hs-source-dirs: tests
+  default-language: Haskell2010
+  main-is: Main.hs
+  -- `-T` is needed for https://hackage.haskell.org/package/base-4.17.0.0/docs/GHC-Stats.html
+  ghc-options: -Wall -threaded -with-rtsopts=-T
+  build-depends:
+      base
+    , zip-stream
+    , bytestring
+    , conduit
+    , hspec
+    , text
+    , time
