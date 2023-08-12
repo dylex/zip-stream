@@ -51,7 +51,7 @@ data ZipOptions = ZipOptions
 
 defaultZipOptions :: ZipOptions
 defaultZipOptions = ZipOptions
-  { zipOpt64 = False
+  { zipOpt64 = True
   , zipOptCompressLevel = -1
   , zipOptInfo = ZipInfo
     { zipComment = BS.empty
