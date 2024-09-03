@@ -182,6 +182,7 @@ unZipStream = next where
               -- the zip specs claim "the Local header MUST include BOTH" but "only if the corresponding field is set to 0xFFFFFFFF"
               usiz' <- if usiz == maxBound32 then G.getWord64le else return $ extZip64USize ext
               csiz' <- if csiz == maxBound32 then G.getWord64le else return $ extZip64CSize ext
+              G.skip z
               return ext
                 { extZip64 = True
                 , extZip64USize = usiz'
