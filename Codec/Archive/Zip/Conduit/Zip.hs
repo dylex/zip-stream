@@ -221,6 +221,7 @@ zipStream ZipOptions{..} = execStateC 0 $ do
         P.putWord64le $ fromMaybe 0 usiz
         P.putWord64le $ fromMaybe 0 csiz
     let outsz c = stateC $ \(!o) -> (id &&& (o +) . snd) <$> c
+    -- let outsz c = stateC $ \(!o) -> (id &&& (o +) . snd) <$> (C.yield mempty >> c)
     ((cdiUsz, cdiCrc), cdiCsz) <- either
       (\cd -> do
         r@((usz, crc), csz) <- outsz cd -- write compressed data

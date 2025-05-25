@@ -89,6 +89,7 @@ test-suite tests
     , zip-stream
     , bytestring
     , conduit
+    , conduit-extra
     , hspec
     , text
     , time
